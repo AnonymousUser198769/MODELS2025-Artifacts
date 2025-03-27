@@ -1,0 +1,378 @@
+sload ../common/common.maude
+
+--- Define the Broker metamodel and rules.
+fmod BROKER_IO is
+  pr SET{Id} .
+  pr INT + STRING + FLOAT .
+
+  --- Bindings -------------------------------------------------------------------------------------
+  sort Binding . --- Binding of channels.
+  op _->_ : Id Id -> Binding . --- Async binding
+  op _=>_ : Id Id -> Binding . --- Sync binding (experimental)
+
+  --- Packets --------------------------------------------------------------------------------------
+  sort Packet .
+  --- The vanilla packet is used for asynchronous communication
+  op packet : Id VariableSet -> Packet . --- Id and variables
+  --- Send and receive packets are used for synchronous communication (experimental).
+  op sendPacket : Id VariableSet -> Packet . --- Id and variables
+  op receivePacket : Id Set{Id} -> Packet . --- Id and receive params
+  op receivePacket : Id VariableSet -> Packet . --- Id and receive vars
+  --- Multiset for packets -------------------------------------------------------------------------
+  sort Packets .
+  subsort Packet < Packets .
+  op noPackets : -> Packets [ctor] .
+  op _,_ : Packets Packets -> Packets [ctor assoc comm id: noPackets] .
+
+  --- Variables ------------------------------------------------------------------------------------
+  sort Variable VariableSet .
+  subsort Variable < VariableSet .
+  op _=_ : Id Bool -> Variable .
+  op _=_ : Id Int -> Variable .
+  op _=_ : Id String -> Variable .
+  op _=_ : Id Float -> Variable .
+  op noVars : -> VariableSet .
+  op _,_ : VariableSet VariableSet -> VariableSet [assoc comm id: noVars] .
+endfm
+
+view Binding from TRIV to BROKER_IO is
+  sort Elt to Binding .
+endv
+
+omod BROKER is
+  inc BROKER_IO .
+  pr SET{Binding} .
+  pr SYSTEM .
+
+  ---- Broker --------------------------------------------------------------------------------------
+  class Broker | in : Packets, out : Packets, bindings : Set{Binding} .
+
+  --- Variables for the rules ----------------------------------------------------------------------
+  var Br : Oid .
+  var InPackets OutPackets : Packets .
+  var Bindings : Set{Binding} .
+  var Id Id1 Id2 : Id .
+  var Variables : VariableSet .
+  var Params : Set{Id} .
+  var Variable : Variable .
+  var Int : Int .
+  var Bool : Bool .
+  var C : Configuration .
+  var T : Time .
+
+  ---- Broker async binding rule (move) ------------------------------------------------------------
+  rl [broker-async-binding] :
+      < Br : Broker | in : (packet(Id1, Variables), InPackets),
+                      out : OutPackets,
+                      bindings : (Id1 -> Id2, Bindings) >
+    =>
+      < Br : Broker | in : InPackets,
+                      out : (packet(Id2, Variables), OutPackets) > .
+  --- This rule does not take any time, i.e., mte is zero.
+  eq mteBroker(< Br : Broker | in : (packet(Id1, Variables), InPackets),
+                         out : OutPackets,
+                         bindings : (Id1 -> Id2, Bindings) > C, T)
+     = zero .
+
+  ---- Broker sync binding rule (experimental) -----------------------------------------------------
+  crl [broker-sync-binding] :
+      < Br : Broker | in : (sendPacket(Id1, Variables), receivePacket(Id2, Params), InPackets),
+                      out : OutPackets,
+                      bindings : (Id1 => Id2, Bindings) >
+    =>
+      < Br : Broker | in : InPackets,
+                      out : (sendPacket(Id1, Variables), receivePacket(Id2, Variables), OutPackets) >
+     if ids(Variables) = Params .
+  --- This rule does not take any time, i.e., mte is zero.
+  eq mteBroker(< Br : Broker | in : (sendPacket(Id1, Variables), receivePacket(Id2, Params), InPackets),
+                         out : OutPackets,
+                         bindings : (Id1 => Id2, Bindings) > C, T)
+     = zero .
+
+  op ids : VariableSet -> Set{Id} .
+  eq ids(((Id = Int), Variables)) = Id, ids(Variables) .
+  eq ids(((Id = Bool), Variables)) = Id, ids(Variables) .
+  eq ids(noVars) = empty .
+
+  op broker : -> Configuration .
+endom
+
+--- Define the statechart language adapter
+sload ../statechart/statechart.maude
+omod SC-ADAPTER is
+  inc BROKER .
+  inc SC-SEM .
+
+  var Br Id : Oid .
+  var Packets : Packets .
+  var Bindings : Set{Binding} .
+  var Vars : VariableSet .
+
+  var EVPools : Set{EventPool} .
+  var Events : List{Event} .
+  var ChannelName ChannelId : Id .
+  var Event : Event .
+  var Int : Int .
+  var String : String .
+  var Bool : Bool .
+
+  subsort String < Id .
+  var C : Configuration .
+  var T : Time .
+
+  --- Read SC events (ingest) ----------------------------------------------------------------------
+  rl [sc_event_to_broker] :
+      < Id : EventPools | pools : (evpool(ChannelName, (Event Events)), EVPools) >
+      < Br : Broker | in : Packets, bindings : (ChannelName -> ChannelId, Bindings) >
+    =>
+      < Id : EventPools | pools : (evpool(ChannelName, Events), EVPools) >
+      < Br : Broker | in : (packet(ChannelName, scToBroker(Event)), Packets) > .
+  eq mteBroker(
+      < Id : EventPools | pools : (evpool(ChannelName, (Event Events)), EVPools) >
+      < Br : Broker | in : Packets, bindings : (ChannelName -> ChannelId, Bindings) > C, T)
+     = zero .
+
+  op scToBroker : Event -> VariableSet . --- Map SC data to the broker's canonical data model.
+  eq scToBroker(event) = noVars .
+  --- TODO: Hard-coded var names --> semantic mapping needed
+  eq scToBroker(event(value : Int)) = ("value" = Int) .
+  eq scToBroker(event(value : Bool)) = ("value" = Bool) .
+  eq scToBroker(event(value : String)) = ("value" = String) .
+
+  --- Write SC events (deliver) --------------------------------------------------------------------
+  rl [broker_to_sc_event] :
+      < Id : EventPools | pools : (evpool(ChannelName, Events), EVPools) >
+      < Br : Broker | out : (packet(ChannelName, Vars), Packets),
+                      bindings : (ChannelId -> ChannelName, Bindings) >
+    =>
+      < Id : EventPools | pools : (evpool(ChannelName, (scFromBroker(Vars) Events)), EVPools) >
+      < Br : Broker | out : Packets > .
+  eq mteBroker(
+      < Id : EventPools | pools : (evpool(ChannelName, Events), EVPools) >
+      < Br : Broker | out : (packet(ChannelName, Vars), Packets),
+                      bindings : (ChannelId -> ChannelName, Bindings) > C, T)
+     = zero .
+
+  op scFromBroker : VariableSet -> Event . --- Map the broker's canonical data model to SC data.
+  eq scFromBroker(noVars) = event .
+  --- TODO: Hard-coded var names --> semantic mapping needed
+  eq scFromBroker("value" = Int) = event(value : Int) .
+  eq scFromBroker("value" = Bool) = event(value : Bool) .
+  eq scFromBroker("value" = String) = event(value : String) .
+endom
+
+--- Define the CPN language adapter
+sload ../cpn/cpn.maude
+omod CPN-ADAPTER is
+  inc BROKER .
+  inc CPN-SEM .
+
+  var Br SId CPNId : Oid .
+  var Packets : Packets .
+  var Bindings : Set{Binding} .
+  var Vars : VariableSet .
+
+  var PlaceId ChannelId : Id .
+
+  var Places : Set{CPNPlace} .
+  var InArcs OutArcs : Set{Id} .
+  var Marking : CPNTokens .
+  var Type : CPNDataType .
+  var T GT : Time .
+  var Conf : Configuration .
+  var Data : CPNData .
+  var Int : Int .
+  var String : String .
+  var Bool : Bool .
+
+  subsort String < Id .
+
+  --- Read a token and create a packet (if the token is visible due to his timestamp) (ingest) -----
+  crl [token_to_packet] :
+      { < CPNId : CPN | places : (place(PlaceId, InArcs, OutArcs, Type), Places) >
+        < SId : CPNInstance | cpn : CPNId, marking : (token(PlaceId, Data, T), Marking) >
+        < Br : Broker | in : Packets, bindings : (PlaceId -> ChannelId, Bindings) > Conf, GT }
+    =>
+      { < CPNId : CPN | >
+        < SId : CPNInstance | marking : Marking >
+        < Br : Broker | in : (packet(PlaceId, cpnToBroker(Data)), Packets) > Conf, GT } if GT >= T .
+
+  op cpnToBroker : CPNData -> VariableSet . --- Map CPN data to the broker's canonical data model.
+  eq cpnToBroker(unit) = noVars .
+  --- TODO: Hard-coded var names --> semantic mapping needed
+  eq cpnToBroker(data(Int)) = ("value" = Int) .
+  eq cpnToBroker(data(String)) = ("value" = String) .
+  eq cpnToBroker(data(Bool)) = ("value" = Bool) .
+
+  ceq mteBroker(
+      < SId : CPNInstance | cpn : CPNId, marking : (token(PlaceId, Data, T), Marking) >
+      < Br : Broker | in : Packets, bindings : (PlaceId -> ChannelId, Bindings) > Conf, GT)
+     = zero  if GT >= T .
+
+  --- Write tokens and delete packages (deliver) ---------------------------------------------------
+  rl [packet_to_token] :
+      < CPNId : CPN | places : (place(PlaceId, InArcs, OutArcs, Type), Places) >
+      < SId : CPNInstance | cpn : CPNId, marking : Marking >
+      < Br : Broker | out : (packet(PlaceId, Vars), Packets), bindings : (ChannelId -> PlaceId, Bindings) >
+    =>
+      < CPNId : CPN | >
+      < SId : CPNInstance | marking : (token(PlaceId, cpnFromBroker(Vars), 0), Marking) > --- Timestamp 0 means the token is immediately accessible.
+      < Br : Broker | out : Packets > .
+
+  eq mteBroker(
+      < CPNId : CPN | places : (place(PlaceId, InArcs, OutArcs, Type), Places) >
+      < SId : CPNInstance | cpn : CPNId, marking : Marking >
+      < Br : Broker | out : (packet(PlaceId, noVars), Packets), bindings : (ChannelId -> PlaceId, Bindings) > Conf, GT)
+     = zero .
+
+  op cpnFromBroker : VariableSet -> CPNData .
+  eq cpnFromBroker(noVars) = unit .
+  --- TODO: Hard-coded var names --> semantic mapping needed
+  eq cpnFromBroker("value" = Int) = data(Int) .
+  eq cpnFromBroker("value" = String) = data(String) .
+  eq cpnFromBroker("value" = Bool) = data(Bool) .
+endom
+
+--- Define the BPMN language adapter
+sload ../bpmn/bpmn.maude
+omod BPMN-ADAPTER is
+  inc BROKER .
+  inc BPMN-SEM .
+
+  var Br SId PId : Oid .
+  var Packets : Packets .
+  var Bindings : Set{Binding} .
+
+  var Messages : Set{Id} .
+  var Message ChannelId : Id .
+
+  --- Read BPMN messages (ingest) ------------------------------------------------------------------
+  rl [bpmn_message_to_broker] :
+      < SId : BPMNInstance | messages : (Message, Messages) >
+      < Br : Broker | in : Packets, bindings : (Message -> ChannelId, Bindings) >
+    =>
+      < SId : BPMNInstance | messages : Messages >
+      < Br : Broker | in : (packet(Message, noVars), Packets) > .
+  eq mteBroker(
+      < SId : BPMNInstance | messages : (Message, Messages) >
+      < Br : Broker | in : Packets, bindings : (Message -> ChannelId, Bindings) > C, T)
+     = zero .
+
+
+  var FId1 FId2 : Id .
+  var NId : Id .
+  var TaskName : String .
+  var Nodes : Set{Node} .
+  var T : Time .
+  var OM IM : Set{Id} .
+  var Tks : Set{Message} .
+  var C : Configuration .
+
+  --- Write messages from the broker if a BPMN simulation is waiting (deliver) ---------------------
+  rl [broker_to_bpmn_message] :
+      < PId : Process | nodes : (task(NId, TaskName, FId1, FId2, T, OM, (Message, IM)), Nodes) >
+      < SId : BPMNInstance | process : PId, tokens : (token(NId, 0), Tks), messages : Messages >
+      < Br : Broker | out : (packet(Message, noVars), Packets), bindings : (ChannelId -> Message, Bindings) >
+    =>
+      < PId : Process | >
+      < SId : BPMNInstance | messages : (Message, Messages) >
+      < Br : Broker | out : Packets > .
+  eq mteBroker(
+      < PId : Process | nodes : (task(NId, TaskName, FId1, FId2, T, OM, (Message, IM)), Nodes) >
+      < SId : BPMNInstance | process : PId, tokens : (token(NId, 0), Tks), messages : Messages >
+      < Br : Broker | out : (packet(Message, noVars), Packets), bindings : (ChannelId -> Message, Bindings) > C, T)
+     = zero .
+endom
+
+--- Define the LTS language adapter (experimental)
+sload ../lts/lts.maude
+omod LTS-ADAPTER is
+  inc BROKER .
+  inc LTS-SEM .
+
+  --- LTS Adapter equations -------------------------------------------------------------------------
+  var Packets InPackets OutPackets : Packets .
+  var Variable : Variable .
+  var Variables : VariableSet .
+
+  var Br O : Oid .
+  var VarName ParaMessageName : Id .
+  var Action1 Action2 : Id .
+  var Bindings : Set{Binding} .
+  var Assignment : Assignment .
+  var Parameters : Set{Id} .
+  var BValue : Bool .
+  var IValue : Int .
+  var FValue : Float .
+  var SValue : String .
+  var Actions : Set{Action} .
+
+  msg readyPending : Oid Set{Action} -> Msg .
+
+  eq [lts_ready_send_to_broker] :
+      ready(O, Actions)
+      < Br : Broker | in : InPackets, bindings : Bindings >
+    =
+      readyPending(O, Actions)
+      < Br : Broker | in : (actions2packets(Actions, Bindings), InPackets) > .
+
+  op actions2packets : Set{Action} Set{Binding} -> Packets .
+  eq actions2packets((Action1(Assignment)!, Actions), (Action1 => Action2, Bindings))
+    = (sendPacket(Action1, map(Assignment)),
+       actions2packets(Actions, (Action1 => Action2, Bindings))) .
+  eq actions2packets((Action2(Parameters)?, Actions), (Action1 => Action2, Bindings))
+    = (receivePacket(Action2, Parameters),
+       actions2packets(Actions, (Action1 => Action2, Bindings))) .
+  eq actions2packets(empty, Bindings) = noPackets .
+
+  --- Equations to map data from LTS to the broker
+  op map : Assignment -> VariableSet .
+  eq map((VarName : BValue), Assignment) = ((VarName = BValue), map(Assignment)) .
+  eq map((VarName : IValue), Assignment) = ((VarName = IValue), map(Assignment)) .
+  eq map((VarName : FValue), Assignment) = ((VarName = FValue), map(Assignment)) .
+  eq map((VarName : SValue), Assignment) = ((VarName = SValue), map(Assignment)) .
+  eq map(mt) = noVars .
+
+  --- LTS Broker reply -----------------------------------------------------------------------------
+  ---- If one of the actions has synchronized, all pending actions must be removed from the
+  ---- packets set. We will assume no process can sync with itself.
+  ceq [broker_to_lts_send] :
+      readyPending(O, (Action1(Assignment)!, Actions))
+      < Br : Broker | in : InPackets, out : (sendPacket(Action1, Variables), OutPackets) >
+    =
+      sync(O, Action1(Assignment)!, Actions) ---- no change in a send action
+      < Br : Broker | in : removePackets(Actions, OutPackets), out : removePackets(Actions, OutPackets) >
+    if ids(Assignment) = ids(Variables) .
+  ceq [broker_to_lts_send] :
+      readyPending(O, (Action2(Parameters)?, Actions))
+      < Br : Broker | in : InPackets, out : (receivePacket(Action2, Variables), OutPackets) >
+    =
+      sync(O, Action2(map(Variables))?, Actions) ---- the received assignmet is forwarded
+      < Br : Broker | in : removePackets(Actions, OutPackets), out : removePackets(Actions, OutPackets) >
+    if Parameters = ids(Variables) .
+
+  ---- a set of not anymore pending actions are removed from the packet set
+  op removePackets : Set{Action} Packets -> Packets .
+  ceq removePackets((Action1(Assignment)!, Actions), (sendPacket(Action1, Variables), Packets))
+    = removePackets(Actions, Packets)
+    if ids(Assignment) = ids(Variables) .
+  ceq removePackets((Action1(Parameters)?, Actions), (receivePacket(Action1, Variables), Packets))
+    = removePackets(Actions, Packets)
+    if Parameters = ids(Variables) .
+  eq removePackets(Actions, Packets) = Packets .
+
+  --- Equations to map data from the Broker to the LTS
+  op map : VariableSet -> Assignment .
+  eq map((VarName = BValue), Variables) = ((VarName : BValue), map(Variables)) .
+  eq map((VarName = IValue), Variables) = ((VarName : IValue), map(Variables)) .
+  eq map((VarName = FValue), Variables) = ((VarName : FValue), map(Variables)) .
+  eq map((VarName = SValue), Variables) = ((VarName : SValue), map(Variables)) .
+  eq map(noVars) = mt .
+  op mapParams : VariableSet -> Set{Id} .
+  eq mapParams((VarName = BValue), Variables) = (VarName, mapParams(Variables)) .
+  eq mapParams((VarName = IValue), Variables) = (VarName, mapParams(Variables)) .
+  eq mapParams((VarName = FValue), Variables) = (VarName, mapParams(Variables)) .
+  eq mapParams((VarName = SValue), Variables) = (VarName, mapParams(Variables)) .
+  eq mapParams(noVars) = empty .
+endom
+

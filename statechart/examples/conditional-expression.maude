@@ -1,0 +1,18 @@
+---- Example see ./expressions
+load ../statechart.maude
+
+mod SC-EX is
+  pr SC-SEM .
+  pr STRING .
+  subsorts String < Id .
+
+  ops sm si id : -> Oid .
+  ops x y : -> IntVar .
+  ops z : -> BoolVar .
+  op initSystem : -> Configuration .
+  eq initSystem
+    = < sm : StateChart | transitions : ("A" - always / x = y <' x ? y : x -> "final") > ---
+      < si : SCInstance | sc : sm, state : scToken("A", 0),
+                                     variables : ([x : 99], [y : 42], [z : false]) >
+      < id : EventPools | pools : empty > .
+endm

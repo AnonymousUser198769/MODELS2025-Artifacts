@@ -1,0 +1,20 @@
+load ./../lts.maude
+
+mod LTS-EX-MULTI-ACTION is
+  pr LTS-SEM .
+  pr STRING .
+  subsorts String < Id .
+
+  ops a ai b bi : -> Oid .
+  op initSystem : -> Configuration .
+  eq initSystem
+    = < a : LTS | transitions : ("from1" - "a" (empty) ! -> "toA",
+                                 "from1" - "b" (empty) ! -> "toB") >
+      < ai : LTSInstance | lts : a, state : "from1", vars : mt >
+      < b : LTS | transitions : ("from2" - "a" (empty) ? -> "toA",
+                                 "from2" - "b" (empty) ? -> "toB") >
+      < bi : LTSInstance | lts : b, state : "from2", vars : mt > .
+endm
+
+rew initSystem .
+search initSystem =>! S:Configuration .

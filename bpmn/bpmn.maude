@@ -1,0 +1,454 @@
+sload ../common/common.maude
+
+---- Gateways --------------------------------------------------------------------------------------
+fmod GATEWAY is
+  sort Gateway .
+  op exclusive : -> Gateway [ctor] .
+  op inclusive : -> Gateway [ctor] .
+  op parallel : -> Gateway [ctor] .
+endfm
+
+---- Nodes -----------------------------------------------------------------------------------------
+fmod NODE is
+  pr ID .
+  pr GATEWAY .
+  pr SET{Id} .
+  pr NAT-TIME-DOMAIN-WITH-INF .
+  pr STRING .
+
+  sort Node .
+  op start : Id Id -> Node [ctor] .
+  op end : Id Id -> Node [ctor] .
+  op task : Id String Id Id Time Set{Id} Set{Id} -> Node [ctor] . ---- description of the task
+  --- ID, name, input flow, output flow, time, created events, consumed events
+  op split : Id Gateway Id Set{Id} -> Node [ctor] . ---- an input flow, a set of output flows
+  op merge : Id Gateway Set{Id} Id -> Node [ctor] . ---- a set of input flows, an output flow
+endfm
+
+view Node from TRIV to NODE is
+  sort Elt to Node .
+endv
+
+---- Flows -----------------------------------------------------------------------------------------
+fmod FLOW is
+  pr ID .
+  pr NAT-TIME-DOMAIN-WITH-INF .
+
+  sort Flow .
+  op flow : Id Time -> Flow [ctor] .
+endfm
+
+view Flow from TRIV to FLOW is
+  sort Elt to Flow .
+endv
+
+----- Message --------------------------------------------------------------------------------------
+mod MESSAGE is
+  pr ID .
+  pr CONFIGURATION .
+  pr NAT-TIME-DOMAIN-WITH-INF .
+
+  sort Message .
+  subsort Message < Configuration .
+
+  op init : -> Message [ctor] .
+  op token : Id Time -> Message [ctor] .
+endm
+
+view Message from TRIV to MESSAGE is
+  sort Elt to Message .
+endv
+
+view Set`{Message`} from TRIV to SET{Message} is
+  sort Elt to Set`{Message`} .
+endv
+
+---- Description of the BPMN behavioral semantics --------------------------------------------------
+omod BPMN-SEM is
+  pr SET{Node} .
+  pr SET{Flow} .
+  pr SET{Id} .
+  pr CONFIGURATION .
+  pr SET{Message} .
+  pr SYSTEM .
+
+  subsort Oid < Id .
+
+  var PId : Oid .
+  var SId : Oid .
+  var FId FId1 FId2 : Id .
+  var NId : Id .
+  var Nodes : Set{Node} .
+  var F Flows : Set{Flow} .
+  var Conf : Configuration .
+  var TaskName : String .
+  var FIds Visited : Set{Id} .
+  var T T1 T2 : Time .
+  var GW : Gateway .
+  var Tks Tks' : Set{Message} .
+  var Tk : Message .
+  var N : Nat .
+  var Id : Id .
+  var OM, IM : Set{Id} .
+  var Messages : Set{Id} .
+
+  ---- Process -------------------------------------------------------------------------------------
+  class Process | nodes : Set{Node}, flows : Set{Flow} .
+
+  ---- BPMNInstance --------------------------------------------------------------------------------
+  class BPMNInstance | process : Oid, tokens : Set{Message}, messages : Set{Id} .
+
+  --- BPMN-specific time ---------------------------------------------------------------------------
+  var GT : Time .
+  eq mte(< PId : Process | nodes : Nodes > < SId : BPMNInstance | tokens : Tks > Conf, GT)
+    = min(mte(Nodes, Tks), mte(Conf, GT)) .
+  op mte : Set{Node} Set{Message} -> Time .
+  op mte : Set{Node} Set{Message} Set{Message} -> Time .
+
+  eq delta(< SId : BPMNInstance | tokens : Tks > Conf, T1)
+    = < SId : BPMNInstance | tokens : deltaTokens(Tks, T1) > delta(Conf, T1) .
+
+  eq delta(< PId : Process | > Conf, T1) = < PId : Process | > delta(Conf, T1) . --- Ignore delta for process models.
+
+  op deltaTokens : Set{Message} Time -> Set{Message} .
+----   op allTokensToZero : Set{Message} -> Bool .
+  op maxTokenTimePar : Set{Id} Set{Message} Time -> Time .
+  op maxTokenTimeInc : Set{Id} Set{Node} Set{Message} Set{Message} Time -> Time .
+
+  eq mte(Nodes, Tks) = mte(Nodes, Tks, Tks) .
+
+  --- for a parallel merge we take the max of the incoming tokens, infinity if someone is missing
+  eq mte((merge(NId, parallel, (FId1, FIds), FId2), Nodes), (token(FId1, T), Tks), Tks')
+    = min(maxTokenTimePar(FIds, Tks, T),
+          mte((merge(NId, parallel, (FId1, FIds), FId2), Nodes), Tks, Tks')) .
+  --- for an exclusive merge the activation of a flow is enough
+  eq mte((merge(NId, exclusive, (FId1, FIds), FId2), Nodes), (token(FId1, T), Tks), Tks')
+    = min(T, mte((merge(NId, exclusive, (FId1, FIds), FId2), Nodes), Tks, Tks')) .
+  --- for the inclusive merge we take the max time of the tokens already in the incoming flows,
+  --- if there were pending tokens the merge wouldn't be applied, but there would be
+  --- something to happen elsewhere
+  eq mte((merge(NId, inclusive, (FId1, FIds), FId2), Nodes), (token(FId1, T), Tks), Tks')
+    = min(maxTokenTimeInc(FIds, (merge(NId, inclusive, (FId1, FIds), FId2), Nodes), Tks, Tks', T),
+          mte((merge(NId, inclusive, (FId1, FIds), FId2), Nodes),
+              removeTokensInclusive(FIds, Tks), Tks')) .
+  eq mte(Nodes, (token(Id, T), Tks), Tks') = min(T, mte(Nodes, Tks, Tks')) [owise] .
+  eq mte(Nodes, empty, Tks) = INF .
+
+  eq maxTokenTimePar((FId, FIds), (token(FId, T1), Tks), T2)
+    = if T1 > T2
+      then maxTokenTimePar(FIds, Tks, T1)
+      else maxTokenTimePar(FIds, Tks, T2)
+      fi .
+  eq maxTokenTimePar((FId, FIds), Tks, T) = INF [owise] .
+  eq maxTokenTimePar(empty, Tks, T) = T .
+
+  eq maxTokenTimeInc((FId, FIds), Nodes, (token(FId, T1), Tks), Tks', T2)
+    = if T1 > T2
+      then maxTokenTimeInc(FIds, Nodes, Tks, Tks', T1)
+      else maxTokenTimeInc(FIds, Nodes, Tks, Tks', T2)
+      fi .
+  eq maxTokenTimeInc((FId, FIds), Nodes, Tks, Tks', T)
+    = if expectingToken(FId, Nodes, Tks', FId)
+      then INF
+      else maxTokenTimeInc(FIds, Nodes, Tks, Tks', T)
+      fi
+    [owise] .
+  eq maxTokenTimeInc(empty, Nodes, Tks, Tks', T) = T .
+
+  eq deltaTokens(empty, T) = empty .
+  eq deltaTokens((token(Id, T1), Tks), T2)
+    = if (T1 > T2)
+      then (token(Id, sd(T1, T2)), deltaTokens(Tks, T2))
+      else (token(Id, 0), deltaTokens(Tks, T2))
+      fi .
+
+  --------------------------------------------------------------------------------------------------
+  ---- Initiation of the process
+  rl [startProc] :
+      < PId : Process |
+           nodes : (start(NId, FId), Nodes),
+           flows : (flow(FId, T), Flows) >
+      < SId : BPMNInstance |
+           process : PId,
+           tokens : (token(NId, 0), Tks) >
+    =>
+      < PId : Process |
+           nodes : (start(NId, FId), Nodes),
+           flows : (flow(FId, T), Flows) >
+      < SId : BPMNInstance |
+           tokens : (token(FId, T), Tks) >
+    [print "startProc " PId] .
+
+  --------------------------------------------------------------------------------------------------
+  ---- Termination of the process
+  rl [endProc] :
+      < PId : Process |
+           nodes : (end(NId, FId), Nodes) >
+      < SId : BPMNInstance |
+           process : PId,
+           tokens : (token(FId, 0), Tks) >
+    =>
+      < PId : Process |
+           nodes : (end(NId, FId), Nodes) >
+      < SId : BPMNInstance |
+           tokens : Tks >
+    [print "endProc " PId] .
+
+  --------------------------------------------------------------------------------------------------
+  ---- Initiation of a task
+  rl [initTask] :
+      < PId : Process |
+           nodes : (task(NId, TaskName, FId1, FId2, T, OM, IM), Nodes),
+           flows : Flows >
+      < SId : BPMNInstance |
+           process : PId,
+           tokens : (token(FId1, 0), Tks) >
+    =>
+      < PId : Process |
+           nodes : (task(NId, TaskName, FId1, FId2, T, OM, IM), Nodes),
+           flows : Flows >
+      < SId : BPMNInstance |
+           tokens : (token(NId, T), Tks) >
+    [print "taskInit " TaskName] .
+
+  --------------------------------------------------------------------------------------------------
+  ---- Execution / completion of a task
+  rl [execTask] :
+      < PId : Process |
+           nodes : (task(NId, TaskName, FId1, FId2, T, OM, IM), Nodes),
+           flows : (flow(FId2, T2), Flows) >
+      < SId : BPMNInstance |
+           process : PId,
+           tokens : (token(NId, 0), Tks),
+           messages : (IM, Messages) >
+    =>
+      < PId : Process |
+           nodes : (task(NId, TaskName, FId1, FId2, T, OM, IM), Nodes),
+           flows : (flow(FId2, T2), Flows) >
+      < SId : BPMNInstance |
+           tokens : (token(FId2, T2), Tks),
+           messages : (OM, Messages) >
+    [print "TASK COMPLETION ===>>> " TaskName] .
+
+  --------------------------------------------------------------------------------------------------
+  ---- Split gateway - exclusive
+  rl [splitGatewayExclusive] :
+      < PId : Process |
+           nodes : (split(NId, exclusive, FId1, (FId2, FIds)), Nodes),
+           flows : (flow(FId2, T), Flows) >
+      < SId : BPMNInstance |
+           process : PId,
+           tokens : (token(FId1, 0), Tks) >
+    =>
+      < PId : Process |
+           nodes : (split(NId, exclusive, FId1, (FId2, FIds)), Nodes),
+           flows : (flow(FId2, T), Flows) >
+      < SId : BPMNInstance |
+           tokens : (token(FId2, T), Tks) >
+    [print "splitExclusive " NId] .
+
+  --------------------------------------------------------------------------------------------------
+  ---- Merge gateway - exclusive
+  rl [mergeGatewayExclusive] :
+      < PId : Process |
+           nodes : (merge(NId, exclusive, (FId1, FIds), FId2), Nodes),
+           flows : (flow(FId2, T), Flows) >
+      < SId : BPMNInstance |
+           process : PId,
+           tokens : (token(FId1, 0), Tks) >
+    =>
+      < PId : Process |
+           nodes : (merge(NId, exclusive, (FId1, FIds), FId2), Nodes),
+           flows : (flow(FId2, T), Flows) >
+      < SId : BPMNInstance |
+           tokens : (token(FId2, T), Tks) >
+    [print "mergeExclusive " NId] .
+
+  --------------------------------------------------------------------------------------------------
+  ---- Split gateway - parallel
+  rl [splitGatewayParallel] :
+      < PId : Process |
+           nodes : (split(NId, parallel, FId, FIds), Nodes),
+           flows : Flows >
+      < SId : BPMNInstance |
+           process : PId,
+           tokens : (token(FId, 0), Tks) >
+    =>
+      < PId : Process |
+           nodes : (split(NId, parallel, FId, FIds), Nodes),
+           flows : Flows >
+      < SId : BPMNInstance |
+           process : PId,
+           tokens : (generateTokensSplitParallel(FIds, Flows), Tks) >
+    [print "splitParallel " NId] .
+
+  --- generates a token in the configuration for all outgoing flows
+  op generateTokensSplitParallel : Set{Id} Set{Flow} -> Set{Message} .
+  eq generateTokensSplitParallel(empty, Flows) = empty .
+  eq generateTokensSplitParallel((FId, FIds), (flow(FId, T), Flows))
+    = (token(FId, T),
+       generateTokensSplitParallel(FIds, Flows)) .
+
+  --------------------------------------------------------------------------------------------------
+  ---- Merge gateway - parallel
+  crl [mergeGatewayParallel] :
+      < PId : Process |
+           nodes : (merge(NId, parallel, (FId1, FIds), FId), Nodes),
+           flows : (flow(FId, T), Flows) >
+      < SId : BPMNInstance |
+           process : PId,
+           tokens : (token(FId1, 0), Tks) >
+    =>
+      < PId : Process |
+           nodes : (merge(NId, parallel, (FId1, FIds), FId), Nodes),
+           flows : (flow(FId, T), Flows) >
+      < SId : BPMNInstance |
+           tokens : (token(FId, T),
+                     removeTokensParallel(FIds, Tks)) >
+    if allTokensParallel(FIds, Tks)
+    [print "mergeParallel " NId] .
+
+  ---- checks if there is a token for all incoming flows
+  op allTokensParallel : Set{Id} Set{Message} -> Bool .
+  eq allTokensParallel((FId, FIds), (token(FId, 0), Tks))
+    = allTokensParallel(FIds, Tks) .
+  eq allTokensParallel(empty, Tks) = true .
+  eq allTokensParallel(FIds, Tks) = false [owise] .
+
+  ---- removes all the incoming tokens
+  op removeTokensParallel : Set{Id} Set{Message} -> Set{Message} .
+  eq removeTokensParallel((FId, FIds), (token(FId, 0), Tks))
+    = (removeTokensParallel(FIds, Tks)) .
+  eq removeTokensParallel(empty, Tks) = Tks .
+
+  --------------------------------------------------------------------------------------------------
+  ---- Split gateway - inclusive
+  rl [splitGatewayInclusive] :
+      < PId : Process |
+           nodes : (split(NId, inclusive, FId, FIds), Nodes),
+           flows : Flows >
+      < SId : BPMNInstance |
+           process : PId,
+           tokens : (token(FId, 0), Tks) >
+    =>
+      < PId : Process |
+           nodes : (split(NId, inclusive, FId, FIds), Nodes),
+           flows : Flows >
+      < SId : BPMNInstance |
+           tokens : (generateTokensSplitInclusive(FIds, Flows), Tks) >
+    [print "splitInclusive " NId] .
+
+  --- generates at least a token in the configuration for one outgoing branch
+  op generateTokensSplitInclusive : Set{Id} Set{Flow} -> [Set{Message}] .
+  --- non-determinism to generate possibly more tokens (all combinations)
+  op generateTokensSplitInclusiveBis : Set{Id} Set{Flow} -> [Set{Message}] .
+
+  ---- rl generateTokensSplitInclusive(empty, Flows) => empty .
+  rl generateTokensSplitInclusive((FId, FIds), (flow(FId, T), Flows))
+    => (token(FId, T),
+        generateTokensSplitInclusiveBis(FIds, Flows)) .
+
+  rl generateTokensSplitInclusiveBis(empty, Flows)
+    => empty .
+  rl generateTokensSplitInclusiveBis((FId, FIds), (flow(FId, T), Flows))
+    => (token(FId, T),
+        generateTokensSplitInclusiveBis(FIds, Flows)) .
+  rl generateTokensSplitInclusiveBis((FId, FIds), Flows)
+    => empty .
+
+  --------------------------------------------------------------------------------------------------
+  ---- Merge gateway - inclusive
+  crl [mergeGatewayInclusive] :
+      < PId : Process |
+           nodes : (merge(NId, inclusive, (FId1, FIds), FId2), Nodes),
+           flows : (flow(FId2, T), Flows) >
+      < SId : BPMNInstance |
+           process : PId,
+           tokens : (token(FId1, 0), Tks) >
+    =>
+      < PId : Process |
+           nodes : (merge(NId, inclusive, (FId1, FIds), FId2), Nodes),
+           flows : (flow(FId2, T), Flows) >
+      < SId : BPMNInstance |
+           tokens : (token(FId2, T),
+                     removeTokensInclusive(FIds, Tks)) >
+    if allTokensInclusive(FIds, Tks, (merge(NId, inclusive, (FId1, FIds), FId2), Nodes))
+    [print "mergeInclusive " NId] .
+
+  ---- for each branch, checks if there is a token and
+  ---- if there is no token available, checks that we should not wait for one (backward traversal)
+  op allTokensInclusive : Set{Id} Set{Message} Set{Node} -> Bool .
+  ---- checks if a given flow has an upstream token in the process
+  ---- strategy: we move backward and check if every encountered flow has a corresponding token
+  op expectingToken : Id Set{Node} Set{Message} Set{Id} -> Bool .
+  --- checks if there at least one token in a set of flows
+  op expectingOneToken : Set{Id} Set{Node} Set{Message} Set{Id} -> Bool .
+  --- checks if a given token is present in the set of messages (any FlowStamp)
+  op isToken : Id Set{Message} -> Bool .
+  --- removes all token consumed when the inclusive merge is triggered
+  op removeTokensInclusive : Set{Id} Set{Message} -> Set{Message} .
+  --- checks if a Id is in a set of Id
+  op isInFIds : Id Set{Id} -> Bool [memo] .
+
+  eq allTokensInclusive(empty, Tks, Nodes) = true .   --- all the branches have been treated
+  eq allTokensInclusive((FId, FIds), (token(FId, 0), Tks), Nodes)   --- there is a token for that branch
+    = allTokensInclusive(FIds, (token(FId, 0), Tks), Nodes) .       --- we check for the other branches
+  ceq allTokensInclusive((FId, FIds), Tks, Nodes)     --- there is no token at 0 and we do not expect one
+    =  allTokensInclusive(FIds, Tks, Nodes)
+    if not(expectingToken(FId, Nodes, Tks, (FId))) .
+  eq allTokensInclusive(FIds, Tks, Nodes) = false [owise] .    --- there is no token at 0 and we expect one
+
+  --- token but time > 0
+  eq expectingToken(FId, Nodes, (token(FId, T), Tks), Visited) = true  .
+  --- start event
+  eq expectingToken(FId, (start(NId, FId), Nodes), (token(NId, T), Tks), Visited) ---- init ?
+    = true .
+
+  --- task
+  ceq expectingToken(FId, (task(NId, TaskName, FId1, FId, T, OM, IM), Nodes), Tks, Visited)
+    = isToken(NId, Tks)
+      or-else
+      expectingToken(FId1, (task(NId, TaskName, FId1, FId, T, OM, IM), Nodes), Tks, (FId1, Visited))
+    if not(isInFIds(FId1, Visited)) .
+  eq expectingToken(FId, (task(NId, TaskName, FId1, FId, T, OM, IM), Nodes), Tks, Visited) = false [owise] .
+
+  --- split
+  --- for any split, we move to backwards search a token
+  ceq expectingToken(FId, (split(NId, GW, FId1, (FId, FIds)), Nodes), Tks, Visited)
+    = expectingToken(FId1, (split(NId, GW, FId1, (FId, FIds)), Nodes), Tks, (FId1, Visited))
+    if not(isInFIds(FId1, Visited)) .
+  eq expectingToken(FId, (split(NId, GW, FId1, (FId, FIds)), Nodes), Tks, Visited) = false [owise] .
+
+  --- merge
+  --- for any kind of merge gateway, we look for at least one token in one branch
+  eq expectingToken(FId, (merge(NId, GW, FIds, FId), Nodes), Tks, Visited)
+    = expectingOneToken(FIds, (merge(NId, GW, FIds, FId), Nodes), Tks, Visited) .
+  eq expectingToken(FId, Nodes, Tks, Visited) = false [owise] .
+
+  --- checks is there is at least one token given a set of flows upstream to a merge
+  eq expectingOneToken(empty, Nodes, Tks, Visited) = false .
+  ceq expectingOneToken((FId, FIds), Nodes, Tks, Visited)
+    = expectingToken(FId, Nodes, Tks, (FId, Visited))
+      or-else
+      expectingOneToken(FIds, Nodes, Tks, Visited)
+    if not(isInFIds(FId, Visited)) .
+  eq expectingOneToken((FId, FIds), Nodes, Tks, Visited) = false [owise] .
+
+  ---- a given token is in the set of tokens ?
+  eq isToken(Id, (token(Id, T), Tks)) = true .
+  eq isToken(Id, Tks) = false [owise] .
+
+  --- all the branches have been treated
+  eq removeTokensInclusive(empty, Tks) = Tks .
+  --- there is a token for that flow, we remove it
+  eq removeTokensInclusive((FId, FIds), (token(FId, 0), Tks))
+    = removeTokensInclusive(FIds, Tks) .
+  --- there is no token to remove for this flow
+  eq removeTokensInclusive(FIds, Tks) = Tks [owise] .
+
+  --- checks if a FId is in a set of FId
+  eq isInFIds(FId, empty) = false .
+  eq isInFIds(FId, (FId2, FIds))
+    = (FId == FId2) or-else isInFIds(FId, FIds) .
+
+endom

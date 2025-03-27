@@ -1,0 +1,5 @@
+sload ../broker-def.maude
+
+sload CPN_async/broker.maude
+
+rew {initCPN broker, 0} .

@@ -1,0 +1,90 @@
+load model-checker.maude .
+
+mod BROKER-EX is
+  pr BROKER .
+  pr CPN-EX .
+  pr CPN-ADAPTER .
+  pr SC-EX .
+  pr SC-ADAPTER .
+  op br : -> Oid .
+  eq broker = < br : Broker | in : noPackets,
+                              out : noPackets,
+                              bindings : ("Train inbound" -> "trainInbound",
+                                          "Train passed" -> "trainPassed",
+                                          "unblockCarTraffic" -> "openBarrier",
+                                          "blockCarTraffic" -> "closeBarrier" ) > .
+endm
+
+mod PREDICATES is
+  pr BROKER-EX .
+  pr SATISFACTION .
+
+  subsort System < State .
+
+  var C : Configuration .
+  var Id Id2 : Oid .
+  var GT T : Time .
+  var Bindings : Set{Binding} .
+  var Variables : VariableSet .
+
+
+  --- Atomic propositions
+  op Time-is : Time -> Prop .
+  eq {C, GT} |= Time-is(GT) = true .
+
+  --- Individual broker propositions
+  op Broker-has-no-packets : -> Prop .
+  eq { < Id : Broker | in : noPackets, out : noPackets, bindings : Bindings > C, GT }
+    |= Broker-has-no-packets = true .
+  op Train-Inbound-Packet : -> Prop .
+  eq { < Id : Broker | in : noPackets, out : (packet("trainInbound", Variables)), bindings : Bindings > C, GT }
+     |= Train-Inbound-Packet  = true .
+  op Close-Barrier-Packet : -> Prop .
+  eq { < Id : Broker | in : noPackets, out : (packet("closeBarrier", Variables)), bindings : Bindings > C, GT }
+     |= Close-Barrier-Packet = true .
+
+  var Int : Int .
+  var Vars : Vars .
+  var Token : SCToken .
+
+  --- Crossing manager propositions
+  op Train-count-negative : -> Prop .
+  ceq { < Id : SCInstance | sc : Id2, state : Token, variables : ([trains : Int], Vars) > C, GT }
+    |= Train-count-negative = true if Int < 0 .
+
+  op Train-count-is : Int -> Prop .
+  eq { < Id : SCInstance | sc : Id2, state : Token, variables : ([trains : Int], Vars) > C, GT }
+    |= Train-count-is(Int) = true .
+
+  --- Sensor system propositions
+  op Train-passing : -> Prop .
+  ceq { < Id : CPNInstance | cpn : Id2, marking : (token("Train passed", data(Int), T)) > C, GT }
+    |= Train-passing = true if GT ge T . --- A token is only available if global time is greater or equal to its timestamp.
+
+  --- Barrier system propositions
+  op Barriers-open : -> Prop .
+  eq { < Id : SCInstance | sc : Id2, state : scToken("Barrier open", T), variables : none > C, GT }
+     |= Barriers-open = true .
+  op Barriers-closed : -> Prop .
+  eq { < Id : SCInstance | sc : Id2, state : scToken("Barrier closed", T), variables : none > C, GT }
+     |= Barriers-closed = true .
+  op Barrier-closing : -> Prop .
+  eq { < Id : SCInstance | sc : Id2, state : scToken("Barrier closing", T), variables : none > C, GT }
+     |= Barrier-closing = true .
+
+  --- Else
+  var S : System .
+  var P : Prop .
+  eq S |= P = false [owise] .
+endm
+
+mod MODEL-CHECK is
+    pr PREDICATES .
+    pr MODEL-CHECKER .
+    pr LTL-SIMPLIFIER .
+
+    var S : System .
+
+    op systemConfiguration : -> System .
+    eq systemConfiguration = {initCPN initSC broker, 0} .
+endm

@@ -1,0 +1,21 @@
+load ./../cpn.maude
+
+mod CPN-EX is
+  pr CPN-SEM .
+  pr STRING .
+  subsorts String < Id .
+
+  ops a ai : -> Oid .
+  op initSystem : -> Configuration .
+  eq initSystem
+    = < a : CPN | places : (place("P1", empty, ("P1 -> T1"), INT),
+                            place("P2", ("T1 -> P2"), empty, INT) ),
+                  transitions : (transition("T1", ("P1 -> T1"), ("T1 -> P2"), @+ const(0)) ),
+                  arcs : (arc("P1 -> T1", "P1", "T1", varExpression("x")),
+                          arc("T1 -> P2", "T1", "P2", varExpression("x")) ) >
+      < ai : CPNInstance | cpn : a, marking : (token("P1", data(1), 0),
+                                                 token("P1", data(2), 0),
+                                                 token("P1", data(3), 0) ) > .
+endm
+
+rew {initSystem, 0} . --- Should lead to a marking with the tokens [1,2,3] moved to P2.

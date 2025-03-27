@@ -1,0 +1,17 @@
+load ./../lts.maude
+
+mod LTS-EX is
+  pr LTS-SEM .
+  pr STRING .
+  subsorts String < Id .
+
+  ops a ai b bi : -> Oid .
+  op initSystem : -> Configuration .
+  eq initSystem
+    = < a : LTS | transitions : ("from1" - "a" ("p1", "p2") ! -> "to1") >
+      < ai : LTSInstance | lts : a, state : "from1", vars : (("p1" : true), ("p2" : 37), ("p3" : "value")) >
+      < b : LTS | transitions : ("from2" - "a" ("p1", "p2") ? -> "to2") >
+      < bi : LTSInstance | lts : b, state : "from2", vars : (("p1" : false), ("p2" : 0), ("p3" : "")) > .
+endm
+
+rew initSystem .

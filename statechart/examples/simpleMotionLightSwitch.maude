@@ -1,0 +1,16 @@
+---- Example see ./simpleMotionLightSwitch
+load ../statechart.maude
+
+mod SC-EX is
+  pr SC-SEM .
+  pr STRING .
+  subsorts String < Id . ---- strings are used as identifiers
+
+  ops sm si id : -> Oid .
+  op initSystem : -> Configuration .
+  eq initSystem
+    = < sm : StateChart | transitions : ("off" - event("motionDetected") / noEffect -> "on",
+                                         "on" - after(30) / noEffect -> "off" ) >
+      < si : SCInstance | sc : sm, state : scToken("off", 0), variables : none > ---- initial token in the off state
+      < id : EventPools | pools : evpool("motionDetected", (event event)) > . --- The evpool motionDetected contains two event.
+endm

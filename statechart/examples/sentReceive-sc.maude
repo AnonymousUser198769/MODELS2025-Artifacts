@@ -1,0 +1,17 @@
+---- Example see ./messageToEvent
+
+load ../../statechart/statechart.maude
+
+mod SC-EX is
+  pr SC-SEM .
+  pr STRING .
+  subsorts String < Id . ---- strings are used as identifiers
+
+  ops sm si id : -> Oid .
+  op initSystem : -> Configuration .
+  eq initSystem
+    = < sm : StateChart | transitions : ("A" -  event("fromMessage") / noEffect -> "B",
+                                         "B" - after(1) / raise "toMessage" -> "Final" ) >
+      < si : SCInstance | sc : sm, state : scToken("A", 0), variables : none >
+      < id : EventPools | pools : (evpool("fromMessage", event), evpool("toMessage", nil)) > .
+endm

@@ -1,0 +1,13 @@
+mod SC-EX is
+  pr SC-SEM .
+  pr STRING .
+  subsorts String < Id .
+
+  ops sm si id : -> Oid .
+  op initSC : -> Configuration .
+  eq initSC
+    = < sm : StateChart | transitions : ("A" - event("fromMessage") / noEffect -> "B",
+                                         "B" - after(1) / raise "toMessage" -> "Final" ) >
+      < si : SCInstance | sc : sm, state : scToken("A", 0), variables : none >
+      < id : EventPools | pools : (evpool("fromMessage", nil), evpool("toMessage", nil)) > .
+endm

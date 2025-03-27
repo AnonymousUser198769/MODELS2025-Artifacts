@@ -1,0 +1,20 @@
+---- Example see ./expressions
+load ../statechart.maude
+
+mod SC-EX is
+  pr SC-SEM .
+  pr STRING .
+  subsorts String < Id .
+
+  ops sm si id : -> Oid .
+  ops x y : -> BoolVar .
+  op initSystem : -> Configuration .
+  eq initSystem
+    = < sm : StateChart | transitions : ("A" - always / x = x &' y -> "B",
+                                         "B" - always / x = ! x -> "C",
+                                         "C" - always / y = x |' y -> "final") >
+      < si : SCInstance | sc : sm, state : scToken("A", 0),
+                                     variables : ([x : true], [y : false]) >
+      < id : EventPools | pools : empty > .
+endm
+--- Both should be true at the end.

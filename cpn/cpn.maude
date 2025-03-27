@@ -1,0 +1,206 @@
+sload ../common/common.maude
+
+---- Auxiliary -------------------------------------------------------------------------------------
+fmod CPN-TIME-EXPR is
+  pr ID .
+  pr INT .
+
+  sorts TimeExpr Constant .
+  subsorts Id Constant < TimeExpr .
+
+  op const : Int -> Constant [ctor] . --- It is easier to use const than deal with Int < TimeExpr conflicts.
+
+  op _+'_ : TimeExpr TimeExpr -> TimeExpr [comm assoc ctor prec 33] .
+  op _-'_ : TimeExpr TimeExpr -> TimeExpr [ctor prec 33] .
+  op _*'_ : TimeExpr TimeExpr -> TimeExpr [comm assoc ctor prec 31] .
+  op _/'_ : TimeExpr TimeExpr -> TimeExpr [ctor prec 41] . --- Lower precedence than the above
+
+  op eval : TimeExpr Int -> Int . --- Expression and the single variable value
+  var Id : Id .
+  var ConstVal Val : Int .
+  var E1 E2 : TimeExpr .
+  eq eval(const(ConstVal), Val) = ConstVal . --- constant is constant
+  eq eval(Id, Val) = Val . --- Var becomes the value
+  eq eval(E1 +' E2, Val) = eval(E1, Val) + eval(E2, Val) .
+  eq eval(E1 *' E2, Val) = eval(E1, Val) * eval(E2, Val) .
+  eq eval(E1 -' E2, Val) = eval(E1, Val) - eval(E2, Val) .
+  eq eval(E1 /' E2, Val) = eval(E1, Val) quo eval(E2, Val) . --- quo is quotient
+endfm
+
+---- Structure -------------------------------------------------------------------------------------
+fmod CPN-STRUCTURE is
+  pr POSRAT-TIME-DOMAIN-WITH-INF .
+  pr INT + STRING .
+  pr SET{Id} .
+  pr CPN-TIME-EXPR .
+  --- Model ----------------------------------------------------------------------------------------
+  sorts CPNDataType CPNBool CPNInt CPNString CPNUnitType .
+  subsorts CPNBool CPNInt CPNString CPNUnitType < CPNDataType . --- Type is also called a colour set.
+  op UNIT : -> CPNUnitType . --- UnitType essentially means untyped, just "token".
+  op STRING : -> CPNString .
+  op INT : -> CPNInt .
+  op BOOL : -> CPNBool .
+
+  --- We support only basic variable bindings (Bool, Int, String)
+  sorts CPNVariableBinding .
+  op _:=_ : Id Bool -> CPNVariableBinding .
+  op _:=_ : Id Int -> CPNVariableBinding .
+  op _:=_ : Id String -> CPNVariableBinding .
+
+  sort CPNData .
+  op unit : -> CPNData .
+  op data : Bool -> CPNData .
+  op data : Int -> CPNData .
+  op data : String -> CPNData .
+
+
+  sort CPNPlace .
+  op place : Id Set{Id} Set{Id} CPNDataType -> CPNPlace [ctor] . --- place: Id, input arcs, output arcs, datatype
+
+  sorts CPNTransition CPNTimeInscription .
+  --- + 0 Should be the default time inscription
+  op @+_ : TimeExpr -> CPNTimeInscription [ctor] .
+  --- Currently restricted to one input arc.
+  op transition : Id Id Set{Id} CPNTimeInscription -> CPNTransition [ctor] . --- transition: Id, input arc, output arcs
+
+  sorts CPNArc CPNArcExpression .
+  op arc : Id Id Id CPNArcExpression -> CPNArc [ctor] . --- Id, from, to, expression
+  op varExpression : Id -> CPNArcExpression . --- Simple Arc expression with one variable.
+  op noExpr : -> CPNArcExpression . --- Simple expression to consume units.
+
+  --- Instance -------------------------------------------------------------------------------------
+  sort CPNToken .
+  op token : Id CPNData Time -> CPNToken [ctor] . --- token: Location (Place id), data, timestamp
+
+  --- Multiset for tokens, i.e., Marking -----------------------------------------------------------
+  sort CPNTokens .
+  subsort CPNToken < CPNTokens .
+  op noTokens : -> CPNTokens [ctor] .
+  op _,_ : CPNTokens CPNTokens -> CPNTokens [ctor assoc comm id: noTokens] .
+endfm
+
+view CPNPlace from TRIV to CPN-STRUCTURE is
+  sort Elt to CPNPlace .
+endv
+
+view CPNTransition from TRIV to CPN-STRUCTURE is
+  sort Elt to CPNTransition .
+endv
+
+view CPNArc from TRIV to CPN-STRUCTURE is
+  sort Elt to CPNArc .
+endv
+
+view CPNVariableBinding from TRIV to CPN-STRUCTURE is
+  sort Elt to CPNVariableBinding .
+endv
+
+---- Semantics -------------------------------------------------------------------------------------
+omod CPN-SEM is
+  pr SET{CPNPlace} .
+  pr SET{CPNTransition} .
+  pr SET{CPNArc} .
+  pr SET{CPNVariableBinding} .
+  pr SYSTEM .
+
+  ---- CPN -----------------------------------------------------------------------------------------
+  class CPN | places : Set{CPNPlace}, transitions : Set{CPNTransition}, arcs : Set{CPNArc} .
+  ---- CPNInstance -------------------------------------------------------------------------------
+  ---- An CPNInstance object is associated to a CPN (cpn), and has a marking (set of tokens).
+  class CPNInstance | cpn : Oid, marking : CPNTokens .
+
+  --- Vars -----------------------------------------------------------------------------------------
+  var CPN CPNS : Oid .
+  var Conf : Configuration .
+  var Places : Set{CPNPlace} .
+  var Transitions : Set{CPNTransition} .
+  var Tokens : CPNTokens .
+  var Arcs : Set{CPNArc} .
+  var In VarId : Id .
+  var T GT : Time .
+  var InArcs OutArcs : Set{Id} .
+  var Expression : CPNArcExpression .
+  var TimeInscription : CPNTimeInscription .
+  var TimeExpr : TimeExpr .
+
+  --- Firing rule without expressions --------------------------------------------------------------
+  crl [fireTransitionNoExpr] :
+        { < CPN : CPN | transitions : (transition(Id, In, OutArcs, TimeInscription), Transitions), places : Places,
+                      arcs : (arc(In, From, To, noExpr), Arcs) >
+          < CPNS : CPNInstance | cpn : CPN, marking : (token(From, Data, T), Tokens) > Conf, GT }
+      =>
+        { < CPN : CPN | >
+          < CPNS : CPNInstance | cpn : CPN, marking : addUnitTokens(Tokens, Arcs, OutArcs, T, TimeInscription) > Conf, GT }
+          if GT >= T .
+
+  op addUnitTokens : CPNTokens Set{CPNArc} Set{Id} Time CPNTimeInscription -> CPNTokens .
+  eq addUnitTokens(Tokens, (arc(Id, From, To, Expression), Arcs), (Id, OutArcs), T, @+ (TimeExpr))
+      =
+     addUnitTokens((token(To, unit, T + eval(TimeExpr, 0)), Tokens), (arc(Id, From, To, Expression), Arcs), (OutArcs), T, @+ (TimeExpr)) .
+  eq addUnitTokens(Tokens, (arc(Id, From, To, Expression), Arcs), empty, T, TimeInscription) = Tokens .
+
+  var Binding : CPNVariableBinding .
+
+  --- Firing rule with expressions -----------------------------------------------------------------
+  crl [fireTransition] :
+        { < CPN : CPN | transitions : (transition(Id, In, OutArcs, TimeInscription), Transitions), places : Places,
+                      arcs : (arc(In, From, To, varExpression(VarId)), Arcs) >
+        < CPNS : CPNInstance | cpn : CPN, marking : (token(From, Data, T), Tokens) > Conf, GT }
+      =>
+        { < CPN : CPN | >
+          < CPNS : CPNInstance | cpn : CPN, marking : addTokens(Tokens,
+                                                                  Arcs,
+                                                                  OutArcs,
+                                                                  Binding,
+                                                                  T,
+                                                                  TimeInscription) > Conf, GT }
+     if Binding := binding(arc(In, From, To, varExpression(VarId)), token(From, Data, T)) /\ Binding =/= empty /\ GT >= T .
+
+  --- Additional Vars & Equations ------------------------------------------------------------------
+  var Id From To : Id .
+  var Data : CPNData .
+  var Bool : Bool .
+  var Int : Int .
+  var String : String .
+
+  op binding : CPNArc CPNTokens -> Set{CPNVariableBinding} .
+  --- We assume place type and arc expressions are fitting!
+  eq binding(arc(In, From, To, varExpression(VarId)), (token(From, data(Int), T), Tokens)) = (VarId := Int) .
+  eq binding(arc(In, From, To, varExpression(VarId)), (token(From, data(Bool), T), Tokens)) = (VarId := Bool) .
+  eq binding(arc(In, From, To, varExpression(VarId)), (token(From, data(String), T), Tokens)) = (VarId := String) .
+  eq binding(Arcs, Tokens) = empty [owise] .
+
+  --- Add a token for each output arc of the transition
+  op addTokens : CPNTokens Set{CPNArc} Set{Id} Set{CPNVariableBinding} Time CPNTimeInscription -> CPNTokens .
+  --- Int
+  eq addTokens(Tokens, (arc(Id, From, To, varExpression(VarId)), Arcs), (Id, OutArcs), (VarId := Int), T, @+ (TimeExpr)) =
+     addTokens((token(To, data(Int), T + eval(TimeExpr, Int)), Tokens), Arcs, OutArcs, (VarId := Int), T, @+ (TimeExpr)) .
+  --- Bool
+  eq addTokens(Tokens, (arc(Id, From, To, varExpression(VarId)), Arcs), (Id, OutArcs), (VarId := Bool), T, @+ (TimeExpr)) =
+     addTokens((token(To, data(Bool), T + eval(TimeExpr, 0)), Tokens), Arcs, OutArcs, (VarId := Bool), T, @+ (TimeExpr)) .
+  --- String
+  eq addTokens(Tokens, (arc(Id, From, To, varExpression(VarId)), Arcs), (Id, OutArcs), (VarId := String), T, @+ (TimeExpr)) =
+     addTokens((token(To, data(String), T + eval(TimeExpr, 0)), Tokens), Arcs, OutArcs, (VarId := String), T, @+ (TimeExpr)) .
+  eq addTokens(Tokens, Arcs, empty, Binding, T, TimeInscription) = Tokens .
+
+
+
+  --- The mte function gives the maximum time elapse, that is, the maximum amount of time that can
+  --- advance without missing any event, or, if you prefer, the first time to the first thing that
+  --- may happen in a system.
+  --- If a petri net transition can fire the MTE is zero.
+  ceq mte(< CPN : CPN | transitions : (transition(Id, In, OutArcs, TimeInscription), Transitions), places : Places,
+                                arcs : (arc(In, From, To, varExpression(VarId)), Arcs) >
+                  < CPNS : CPNInstance | cpn : CPN, marking : (token(From, Data, T), Tokens) > Conf, GT)
+    = zero if Binding := binding(arc(In, From, To, varExpression(VarId)), token(From, Data, T)) /\ Binding =/= empty /\ GT >= T .
+  --- If a petri net transition cannot fire the MTE is the nextMinTokenTimeStamp.
+  var NextTimestamp : Time .
+  ceq mte(< CPNS : CPNInstance | cpn : CPN, marking : Tokens > Conf, GT)
+    = min(NextTimestamp monus GT, mte(Conf, GT)) if NextTimestamp := nextMinTokenTimeStamp(Tokens, GT) /\ GT < NextTimestamp .
+
+  op nextMinTokenTimeStamp : CPNTokens Time -> Time .
+  ceq nextMinTokenTimeStamp((token(From, Data, T), Tokens), GT) = nextMinTokenTimeStamp(Tokens, GT) if GT >= T . --- Ignore token
+  ceq nextMinTokenTimeStamp((token(From, Data, T), Tokens), GT) = min(T, nextMinTokenTimeStamp(Tokens, GT)) if GT < T . --- Take minimum next timestamp
+  eq nextMinTokenTimeStamp(noTokens, GT) = INF . --- No tokens means INF
+endom
+

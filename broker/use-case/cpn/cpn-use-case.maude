@@ -1,0 +1,28 @@
+mod CPN-EX is
+  pr CPN-SEM .
+  pr STRING .
+  subsorts String < Id .
+
+  ops a ai : -> Oid .
+  op speed : -> Id .
+  op initCPN : -> Configuration .
+  eq initCPN
+      = < a : CPN | places : (place("Train prepared to approach", ("Train prepares -> Train prepared to approach"), ("Train prepared to approach -> Train approaches"), INT),
+                              place("Train inbound", ("Train approaches -> Train approaching"), empty, INT), --- First output place
+                              place("Train between sensors", ("Train approaches -> Train between sensors"), ("Train between sensors -> Train passes"), INT),
+                              place("Train waiting to approach", ("Train passes -> Train waiting to approach"), ("Train waiting to approach -> Train prepares"), INT),
+                              place("Train passed", ("Train passes -> Train passed"), empty, INT) ), --- Second output place
+                    transitions : (transition("Train approaches", ("Train prepared to approach -> Train approaches"), ("Train approaches -> Train approaching", "Train approaches -> Train between sensors"), @+ const(0)) ),
+                                   transition("Train prepares", ("Train waiting to approach -> Train prepares"), ("Train prepares -> Train prepared to approach"), @+ const(10)),
+                                   transition("Train passes", ("Train between sensors -> Train passes"), ("Train passes -> Train passed", "Train passes -> Train waiting to approach"), @+ (const(400) /' speed) ),
+                    arcs : (arc("Train prepared to approach -> Train approaches", "Train prepared to approach", "Train approaches", varExpression(speed)),
+                            arc("Train approaches -> Train between sensors", "Train approaches", "Train between sensors", varExpression(speed)),
+                            arc("Train approaches -> Train approaching", "Train approaches", "Train inbound", varExpression(speed)),
+                            arc("Train between sensors -> Train passes", "Train between sensors", "Train passes", varExpression(speed)),
+                            arc("Train waiting to approach -> Train prepares", "Train waiting to approach", "Train prepares", varExpression(speed)),
+                            arc("Train prepares -> Train prepared to approach", "Train prepares", "Train prepared to approach", varExpression(speed)),
+                            arc("Train passes -> Train passed", "Train passes", "Train passed", varExpression(speed)),
+                            arc("Train passes -> Train waiting to approach", "Train passes", "Train waiting to approach", varExpression(speed)) ) >
+        < ai : CPNInstance | cpn : a, marking : (token("Train prepared to approach", data(25), 0),
+                                                   token("Train prepared to approach", data(40), 0) ) > .
+endm

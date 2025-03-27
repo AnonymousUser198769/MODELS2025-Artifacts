@@ -1,0 +1,10 @@
+mod BROKER-EX is
+  pr BROKER .
+  pr BPMN-ADAPTER .
+  pr BPMN-EX .
+  pr SC-ADAPTER .
+  pr SC-EX .
+  op b : -> Oid .
+  eq broker = < b : Broker | in : noPackets, out : noPackets,
+                    bindings : ("send" -> "fromMessage", "toMessage" -> "receive") > .
+endm

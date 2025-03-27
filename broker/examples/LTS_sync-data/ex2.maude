@@ -1,0 +1,36 @@
+mod LTS-EX-1 is
+  pr LTS-SEM .
+  pr STRING .
+  subsorts String < Id .
+
+  ops a ai : -> Oid .
+  op initLTS1 : -> Configuration .
+  eq initLTS1
+    = < a : LTS | transitions : ("from1" - "a" ("p1", "p2") ! -> "to1",
+                                 "from1" - "c" ("p1", "p2") ? -> "to1") >
+      < ai : LTSInstance | lts : a, state : "from1", vars : (("p1" : true), ("p2" : 42), ("p3" : "stringValue")) > .
+endm
+
+mod LTS-EX-2 is
+  pr LTS-SEM .
+  pr STRING .
+  subsorts String < Id .
+
+  ops b bi : -> Oid .
+  op initLTS2 : -> Configuration .
+  eq initLTS2
+    = < b : LTS | transitions : ("from2" - "b" ("p1", "p2") ? -> "to2",
+                                 "from2" - "d" ("p1", "p2") ! -> "to2") >
+      < bi : LTSInstance | lts : b, state : "from2", vars : (("p1" : false), ("p2" : 0), ("p3" : "")) > .
+endm
+
+mod BROKER-EX is
+  pr BROKER .
+  pr LTS-ADAPTER .
+  pr LTS-EX-1 .
+  pr LTS-EX-2 .
+  op br : -> Oid .
+  eq broker = < br : Broker | in : noPackets,
+                              out : noPackets,
+                              bindings : ("a" => "b", "d" => "c") > .
+endm

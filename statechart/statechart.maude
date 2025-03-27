@@ -1,0 +1,323 @@
+sload ../common/common.maude
+
+--- Variables & Expressions ------------------------------------------------------------------------
+fmod VARS is
+  pr ID .
+  pr INT + STRING .
+
+  sorts Vars IntVar BoolVar StringVar Expr .
+  op none : -> Vars .
+  op _,_ : Vars Vars -> Vars [comm assoc id: none] .
+  op [_:_] : IntVar Int -> Vars .
+  op [_:_] : BoolVar Bool -> Vars .
+  op [_:_] : StringVar String -> Vars .
+endfm
+
+---- Syntax for arithmetic expressions, and their evaluation semantics.
+---- To avoid evaluation of expressions by themselves, the operators in
+---- the Int predefined module +, - and * are renamed as +', -' and *' --> TODO: didnt work for me yet!
+fmod Int-EXPR is
+  inc VARS .
+  sorts IntExpr IntAssignment VarAssignment .
+  subsort IntAssignment < VarAssignment .
+  subsorts IntVar Int < IntExpr .
+  subsort IntExpr < Expr .
+
+  op _+'_ : IntExpr IntExpr -> IntExpr [comm assoc ctor prec 33] .
+  op _-'_ : IntExpr IntExpr -> IntExpr [ctor prec 33] .
+  op _*'_ : IntExpr IntExpr -> IntExpr [comm assoc ctor prec 31] .
+  op _/'_ : IntExpr IntExpr -> IntExpr [comm assoc ctor prec 31] .
+  op _=_ : IntVar IntExpr -> IntAssignment [ctor prec 41] . --- Lower precedence than the above
+
+  op eval : IntExpr Vars -> Int .
+  var  Q P : IntVar .
+  var  M : Vars .
+  var N N' : Int .
+  var E E' : IntExpr .
+  eq eval(N, M) = N .
+  eq eval(Q, [Q : N], M) = N .
+  eq eval(Q, M) = 0 [owise] .
+  eq eval(E +' E', M) = eval(E, M) + eval(E', M) .
+  eq eval(E *' E', M) = eval(E, M) * eval(E', M) .
+  eq eval(E -' E', M) = eval(E, M) - eval(E', M) .
+  eq eval(E /' E', M) = eval(E, M) quo eval(E', M) .
+endfm
+
+---- BoolExprs comparing the contents of a variable location to an Integer.
+---- By default, value of non-allocated IntVar is 0.
+
+fmod Bool-EXPR is
+  inc VARS .
+  pr Int-EXPR .
+  sort BoolExpr BoolAssignment .
+  subsort BoolAssignment < VarAssignment .
+  subsort BoolVar < BoolExpr .
+  subsort BoolExpr < Expr .
+
+  op _==_ : IntExpr IntExpr -> BoolExpr [prec 38] .
+  op _>'_ : IntExpr IntExpr -> BoolExpr [prec 37] .
+  op _>='_ : IntExpr IntExpr -> BoolExpr [prec 37] .
+  op _<'_ : IntExpr IntExpr -> BoolExpr [prec 37] .
+  op _<='_ : IntExpr IntExpr -> BoolExpr [prec 37] .
+  op _|'_ : BoolExpr BoolExpr -> BoolExpr [comm assoc prec 39] .
+  op !_ : BoolExpr -> BoolExpr [prec 36] .
+  op _&'_ : BoolExpr BoolExpr -> BoolExpr [comm assoc prec 39] .
+  op _=_ : BoolVar BoolExpr -> BoolAssignment [ctor prec 41] . --- Lower precedence than the above
+  op _?_:_ : BoolExpr IntExpr IntExpr -> IntExpr [ctor prec 40] . --- Tertiary operator for int
+  op _?_:_ : BoolExpr BoolExpr BoolExpr -> BoolExpr [ctor prec 40] . --- Tertiary operator for bool
+
+  op evalB : BoolExpr Vars -> Bool .
+  var  M : Vars .
+  var B B' C : BoolExpr .
+  var E E' : IntExpr .
+  eq evalB(E == E', M) = eval(E, M) == eval(E', M) .
+  eq evalB(E >' E', M) = eval(E, M) > eval(E', M) .
+  eq evalB(E <' E', M) = eval(E, M) < eval(E', M) .
+  eq evalB(E >=' E', M) = eval(E, M) >= eval(E', M) .
+  eq evalB(E <=' E', M) = eval(E, M) <= eval(E', M) .
+  eq evalB(B &' B', M) = evalB(B, M) and evalB(B', M) .
+  eq evalB(B |' B', M) = evalB(B, M) or evalB(B', M) .
+  eq evalB(! B, M) = not evalB(B, M) .
+  ceq evalB(C ? B : B', M) = evalB(B, M) if evalB(C, M) .
+  eq evalB(C ? B : B', M) = evalB(B', M) [owise] .
+
+
+  ceq eval(C ? E : E', M) = eval(E, M) if evalB(C, M) .
+  eq eval(C ? E : E', M) = eval(E', M) [owise] .
+
+  var BoolVar : BoolVar .
+  var Bool : Bool .
+  eq evalB(BoolVar, [BoolVar : Bool], M) = Bool .
+endfm
+
+---- Transitions -----------------------------------------------------------------------------------
+fmod SC-TRANSITION is
+  pr ID .
+  inc Bool-EXPR .
+  pr POSRAT-TIME-DOMAIN-WITH-INF .
+
+  sort SCTransition .
+
+  op _-_/_->_ : Id Trigger Effect Id -> SCTransition [ctor] . --- from - trigger/effect  -> to
+
+  sort Trigger .
+  op always : -> Trigger [ctor] . --- Always execute trigger
+  op event : Id -> Trigger [ctor] . --- Event trigger
+  op after : Time -> Trigger [ctor] . --- Time trigger
+  op [_] : BoolExpr -> Trigger [ctor] . --- Guard trigger (not officially a trigger), could restructure this to fit https://www.itemis.com/en/products/itemis-create/documentation/user-guide/sclang_reactions#sclang_reactions
+  op after(_) [_] : Time BoolExpr -> Trigger [ctor] . --- After with guard
+
+  sort Effect .
+  subsort VarAssignment < Effect . --- Variable assignment
+  op noEffect : -> Effect [ctor] . --- No effect
+  op raise _ : Id -> Effect [ctor] . --- Raise event
+  op _ = _. value : IntVar Id -> Effect [ctor] . --- Special assignment with value of event
+  op _ = _. value : BoolVar Id -> Effect [ctor] . --- Special assignment with value of event
+  op raise _:_ : Id IntVar -> Effect [ctor] . --- Raise event with Int payload
+  op raise _:_ : Id BoolVar -> Effect [ctor] . --- Raise event with Bool payload
+  op _;_ : Effect Effect -> Effect [id: noEffect prec 45] . --- Chains multiple effects
+endfm
+
+view SCTransition from TRIV to SC-TRANSITION is
+  sort Elt to SCTransition .
+endv
+
+---- Event -----------------------------------------------------------------------------------------
+fmod EVENT is
+  sort Event .
+  pr INT + STRING .
+  op event : -> Event [ctor] . --- Empty event
+  op event(value : _) : Int -> Event [ctor] . --- Event with Int payload
+  op event(value : _) : Bool -> Event [ctor] .  --- Event with Bool payload
+  op event(value : _) : String -> Event [ctor] .  --- Event with String payload --- TODO: Cannot be raised atm.
+endfm
+
+view Event from TRIV to EVENT is
+  sort Elt to Event .
+endv
+
+---- Event Pool ---------------------------------------------------------------------------------------
+fmod SC-EVENT-POOL is
+  pr LIST{Event} . ---- PD: Should it be a queue? TK: Yes, I could not find queue in the prelude so I am using List for now.
+  pr ID .
+
+  sort EventPool .
+  op evpool : Id List{Event} -> EventPool [ctor] . --- name, set of events
+endfm
+
+view EventPool from TRIV to SC-EVENT-POOL is
+  sort Elt to EventPool .
+endv
+
+fmod SC-TOKEN is
+  pr NAT-TIME-DOMAIN-WITH-INF .
+  pr ID .
+  sort SCToken .
+  op scToken : Id Time -> SCToken . ---- scToken(Id, T) represents a token that has been at node Id for T units of time
+endfm
+
+omod SC-SEM is
+  pr SET{SCTransition} .
+  pr SET{EventPool} .
+  pr SC-TOKEN .
+  pr SYSTEM .
+  subsorts Oid < Id .
+
+  ---- State Chart ---------------------------------------------------------------------------------
+  class StateChart | transitions : Set{SCTransition} .
+
+  ---- SCInstance --------------------------------------------------------------------------------
+  class SCInstance | sc : Oid, state : SCToken, variables : Vars .
+
+  ---- EventPools ----------------------------------------------------------------------------------
+  class EventPools | pools : Set{EventPool} .
+
+  --- Vars -----------------------------------------------------------------------------------------
+  var SC Si : Oid .
+  var Id From To Name : Id .
+  var Transitions : Set{SCTransition} .
+  var Channels : Set{EventPool} .
+  var Events : List{Event} .
+  var Event : Event .
+  var T T' : Time .
+  var SCToken State : SCToken .
+  var Conf : Configuration .
+  var Effect : Effect .
+
+  var Vars : Vars .
+  var IntVar : IntVar .
+  var BoolVar : BoolVar .
+  var OldInt Int : Int .
+  var OldBool Bool : Bool .
+
+  ---- Transition with always trigger --------------------------------------------------------------
+  rl [executeTransitionAlways] :
+        < SC : StateChart | transitions : (From - always / Effect -> To, Transitions) >
+        < Id : EventPools | pools : Channels >
+        < Si : SCInstance | sc : SC, state : scToken(From, T), variables : Vars >
+      =>
+        < SC : StateChart | >
+        < Id : EventPools | pools : doEffect(Channels, Effect, Vars) >
+        < Si : SCInstance | sc : SC, state : scToken(To, zero), --- New token and old removed
+                              variables : updateVars(Vars, Effect, event) > . --- Update vars
+
+
+  op doEffect : Set{EventPool} Effect Vars -> Set{EventPool} .
+  eq doEffect((evpool(Name, Events), Channels), raise Name ; Effect, Vars) = doEffect((evpool(Name, (event Events) ), Channels), Effect, Vars) . --- add a new event to the right evpool
+  eq doEffect((evpool(Name, Events), Channels), raise Name : IntVar ; Effect, ([IntVar : Int], Vars))
+     =
+     doEffect((evpool(Name, (event(value : Int) Events) ), Channels), Effect, Vars) . --- add a new event with payload to the right evpool
+  eq doEffect((evpool(Name, Events), Channels), raise Name : BoolVar ; Effect, ([BoolVar : Bool], Vars))
+      =
+     doEffect((evpool(Name, (event(value : Bool) Events) ), Channels), Effect, Vars) . --- add a new event with payload to the right evpool
+    eq doEffect(Channels, Effect, Vars) = Channels [owise] .
+
+  var IntExpr : IntExpr .
+  var BoolExpr : BoolExpr .
+
+  op updateVars : Vars Effect Event -> Vars .
+  eq updateVars(([IntVar : Int], Vars), IntVar = IntExpr ; Effect, Event) =
+     updateVars(([IntVar : eval(IntExpr, ([IntVar : Int], Vars))], Vars), Effect, Event) .
+
+  eq updateVars(([BoolVar : Bool], Vars), BoolVar = BoolExpr ; Effect, Event) =
+     updateVars(([BoolVar : evalB(BoolExpr, ([BoolVar : Bool], Vars))], Vars), Effect, Event) .
+
+  eq updateVars(([IntVar : OldInt], Vars), IntVar = Name . value ; Effect, event(value : Int)) =
+     updateVars(([IntVar : Int], Vars), Effect, event(value : Int)) .
+
+  eq updateVars(([BoolVar : OldBool], Vars), BoolVar = Name . value ; Effect, event(value : Bool)) =
+     updateVars(([BoolVar : Bool], Vars), Effect, event(value : Bool)) .
+
+  --- Some effects do not change vars and can be dropped.
+  eq updateVars(Vars, raise Id ; Effect, Event) = updateVars(Vars, Effect, Event) .
+  eq updateVars(Vars, raise Id : IntVar ; Effect, Event) = updateVars(Vars, Effect, Event) .
+  eq updateVars(Vars, raise Id : BoolVar ; Effect, Event) = updateVars(Vars, Effect, Event) .
+  eq updateVars(Vars, noEffect, Event) = Vars .
+
+  ---- Transition with event trigger -----------------------------------------------
+  rl [executeTransitionEvent] :
+        < SC : StateChart | transitions : (From - event(Name) / Effect -> To, Transitions) >
+        < Id : EventPools | pools : (evpool(Name, (Event Events)), Channels) >
+        < Si : SCInstance | sc : SC, state : scToken(From, T), variables : Vars >
+      =>
+        < SC : StateChart | >
+        < Id : EventPools | pools : doEffect((evpool(Name, Events), Channels), Effect, Vars) > --- consume the event
+        < Si : SCInstance | sc : SC, state : scToken(To, zero),
+                              variables : updateVars(Vars, Effect, Event) > . --- update the vars
+
+  ---- Transition with guard trigger ---------------------------------------------------------------
+    crl [executeGuardedTransition] :
+          < SC : StateChart | transitions : (From - [BoolExpr] / Effect -> To, Transitions) >
+          < Id : EventPools | pools : Channels >
+          < Si : SCInstance | sc : SC, state : scToken(From, T), variables : Vars >
+        =>
+          < SC : StateChart | >
+          < Id : EventPools | pools : doEffect(Channels, Effect, Vars) >
+          < Si : SCInstance | sc : SC, state : scToken(To, zero),
+                                variables : updateVars(Vars, Effect, event) >
+        if evalB(BoolExpr, Vars) .
+
+  ---- Transition with after trigger ---------------------------------------------------------------
+  crl [executeTransitionAfter] :
+        < SC : StateChart | transitions : (From - after(T) / Effect -> To, Transitions) >
+        < Id : EventPools | pools : Channels >
+        < Si : SCInstance | sc : SC, state : scToken(From, T'), variables : Vars >
+      =>
+        < SC : StateChart | >
+        < Id : EventPools | pools : doEffect(Channels, Effect, Vars) >
+        < Si : SCInstance | sc : SC, state : scToken(To, zero),
+                              variables : updateVars(Vars, Effect, event) >
+      if T' ge T . ---- the amount of time the token has been in the node is greater or equal (ge) than the after value
+
+  ---- Transition with after trigger and guard -----------------------------------------------------
+  crl [executeTransitionAfterGuard] :
+        < SC : StateChart | transitions : (From - after(T) [BoolExpr] / Effect -> To, Transitions) >
+        < Id : EventPools | pools : Channels >
+        < Si : SCInstance | sc : SC, state : scToken(From, T'), variables : Vars >
+      =>
+        < SC : StateChart | >
+        < Id : EventPools | pools : doEffect(Channels, Effect, Vars) >
+        < Si : SCInstance | sc : SC, state : scToken(To, zero),
+                              variables : updateVars(Vars, Effect, event) >
+      if T' ge T /\ evalB(BoolExpr, Vars) .
+
+  --- SC-specific time operations.
+  ---- The delta function models the pass of time, that is, how the pass of time affects our system.
+  ---- In our case, in addition to the global clock, which is updated in the tick rule itself,
+  ---- we have clocks in the tokens. So far, no other timers of clocks
+  eq delta(< Si : SCInstance | state : State > Conf, T)
+    = < Si : SCInstance | state : deltaState(State, T) > delta(Conf, T) .
+
+  op deltaState : SCToken Time -> SCToken .
+  eq deltaState(scToken(Id, T), T')
+    = scToken(Id, T plus T') .
+
+  ---- The mte function gives the maximum time elapse, that is, the maximum amount of time that can
+  ---- advance without missing any event, or, if you prefer, the first time to the first thing that
+  ---- may happen in a system.
+  ---- In our case, so far we are dealing with always, events and after. And only one statechart, so
+  ---- just we need to look at the token and where it is at.
+  ---- if there is a token in a state with an outgoing always transition the mte is 0.
+  var GT : Time .
+  eq mte(< SC : StateChart | transitions : (From - always / Effect -> To, Transitions) >
+         < Si : SCInstance | sc : SC, state : scToken(From, T) > Conf, GT)
+    = zero .
+  ---- if there is a token in a state with an outgoing transition fired by an event and the event is
+  ---- available the mte is 0
+  eq mte(< SC : StateChart | transitions : (From - event(Name) / Effect -> To, Transitions) >
+         < Id : EventPools | pools : (evpool(Name, (Event Events)), Channels) >
+         < Si : SCInstance | sc : SC, state : scToken(From, T) > Conf, GT)
+    = zero .
+   ---- Guard MTE
+  ceq mte(< SC : StateChart | transitions : (From - [BoolExpr] / Effect -> To, Transitions) >
+         < Id : EventPools | pools : Channels >
+         < Si : SCInstance | sc : SC, state : scToken(From, T), variables : Vars > Conf, GT)
+    = zero if evalB(BoolExpr, Vars) .
+  ---- if there is a token in a transition triggered by an after the mte is given by the remaining time
+  eq mte(< SC : StateChart | transitions : (From - after(T) / Effect -> To, Transitions) >
+         < Si : SCInstance | sc : SC, state : scToken(From, T') > Conf, GT)
+    = min(T monus T', mte(Conf, GT)) .
+  eq mte(< SC : StateChart | transitions : (From - after(T) [BoolExpr] / Effect -> To, Transitions) >
+         < Si : SCInstance | sc : SC, state : scToken(From, T') > Conf, GT)
+    = min(T monus T', mte(Conf, GT)) .
+endom
