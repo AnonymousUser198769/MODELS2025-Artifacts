@@ -1,0 +1,168 @@
+sload ../common/common.maude
+
+---- Transitions ------------------------------------------------------------------
+fmod LTS-TRANSITION is
+  pr POSRAT-TIME-DOMAIN-WITH-INF .
+  pr INT + STRING + FLOAT .
+  pr SET{Id} .
+
+  ---- a state can either be unblocked, e.g., "s" or blocked, e.g., blocked("s")
+  sort State .
+  subsort Id < State .
+  op blocked : Id -> State .
+  ---- payloads are just maps, associating values to field names
+  sort Assignment .
+  op _:_ : Id Bool -> Assignment .
+  op _:_ : Id Int -> Assignment .
+  op _:_ : Id String -> Assignment .
+  op _:_ : Id Float -> Assignment .
+  op mt : -> Assignment .
+  op _,_ : Assignment Assignment -> Assignment [assoc comm id: mt] .
+  ---- Actions can be either tau, id ! or id ?
+  ---- Receive actions have the form a(p1 : v1, ..., pn : vn) where a and p1...pn are ids,
+  ---- maybe constants of type Id or strings if String < Id.
+  ---- Send actions are of the form a(p1, ..., pn) where a and p1...pn are ids
+  sorts SendAction ReceiveAction Action .
+  subsorts SendAction ReceiveAction < Action .
+  op tau : -> Action [ctor] .
+  op _(_)! : Id Set{Id} -> SendAction [ctor] .
+  op _(_)! : Id Assignment -> SendAction [ctor] . ---- auxiliary syntax to carry the assignment
+  op _(_)? : Id Set{Id} -> ReceiveAction [ctor] .
+  op _(_)? : Id Assignment -> ReceiveAction [ctor] . ---- auxiliary syntax to receive the assignment
+  ---- transitions are represented as terms of the form (from - action -> to)
+  sort LTSTransition .
+  op _-_->_ : State Action State -> LTSTransition [ctor] .
+endfm
+
+view LTSTransition from TRIV to LTS-TRANSITION is
+  sort Elt to LTSTransition .
+endv
+
+view Action from TRIV to LTS-TRANSITION is
+  sort Elt to Action .
+endv
+
+omod LTS-SEM is
+  pr SET{LTSTransition} .
+  pr SET{Action} .
+  pr SYSTEM .
+
+  ---- LTS ---------------------------------------------------------------------
+  ---- In any state, an LTS offers a number of operations.
+  class LTS | transitions : Set{LTSTransition} .
+  ---- LTSInstance -----------------------------------------------------------
+  ---- An LTSInstance object is associated to an LTS (lts), which will be on a
+  ---- given state (state), with an assignment to its variables (its current state).
+  class LTSInstance | lts : Oid, state : State, vars : Assignment .
+
+  --- Vars ---------------------------------------------------------------------
+  var O O' : Oid .
+  var  Id : Id .
+  var From To State : Id . ---- non-blocked states
+  var  Transitions : Set{LTSTransition} .
+  var Action Action' : Action .
+  var Actions Actions' : Set{Action} .
+  var  Conf : Configuration .
+  var Assignment Assignment' : Assignment .
+  var Parameters Ids : Set{Id} .
+  var BValue BValue' : Bool .
+  var IValue IValue' : Int .
+  var FValue FValue' : Float .
+  var SValue SValue' : String .
+
+  ------------------------------------------------------------------------------
+  ---- Transition execution
+  ---- Transitions may be either internal transitions (tau) or a synchronization action.
+  ---- A tau can always proceed. So we'll assume that if there is a tau going out of a state,
+  ---- all its outgoing transitions have taus as well.
+  rl [tau] :
+        < O  : LTS | transitions : (From - tau -> To, Transitions) >
+        < O' : LTSInstance | lts : O, state : From >
+     => < O  : LTS | >
+        < O' : LTSInstance | state : To > .
+
+  ---- If there is no tau outgoing the current state, there might be several
+  ---- emissions/receptions ready. These actions are offered, and only one of them
+  ---- matches a corresponding one in the LTS(s) it communicates with. In this case,
+  ---- a ready(O, Actions) message is sent communicating the offering.
+  op active : State Set{LTSTransition} Assignment -> Set{Action} .
+  ---- receiving actions are added as such
+  eq active(From, (From - Id(Parameters) ? -> To, Transitions), Assignment)
+    = Id(Parameters) ?, active(From, Transitions, Assignment) .
+  ---- sending actions are included with an assignment to its parameters
+  eq active(From, (From - Id(Parameters) ! -> To, Transitions), Assignment)
+    = Id(assignment(Parameters, Assignment)) !, active(From, Transitions, Assignment) .
+  eq active(State, Transitions, Assignment) = empty [owise] .
+
+  ---- returns the subassigment for the variables in the first arg
+  op assignment : Set{Id} Assignment -> Assignment .
+  eq assignment((Id, Ids), ((Id : BValue), Assignment))
+    = ((Id : BValue), assignment(Ids, Assignment)) .
+  eq assignment((Id, Ids), ((Id : IValue), Assignment))
+    = ((Id : IValue), assignment(Ids, Assignment)) .
+  eq assignment((Id, Ids), ((Id : FValue), Assignment))
+    = ((Id : FValue), assignment(Ids, Assignment)) .
+  eq assignment((Id, Ids), ((Id : SValue), Assignment))
+    = ((Id : SValue), assignment(Ids, Assignment)) .
+  eq assignment(empty, Assignment) = mt .
+
+  msg ready : Oid Set{Action} -> Msg .
+
+  crl [suspend] :
+        < O  : LTS | transitions : Transitions >
+        < O' : LTSInstance | lts : O, state : State, vars : Assignment >
+     => < O  : LTS | >
+        < O' : LTSInstance | state : blocked(State) >
+        ready(O, active(State, Transitions, Assignment))
+     if active(State, Transitions, Assignment) =/= empty .
+
+  ---- Each communicating LTS O offers a ready(O, Actions) message. If there is a match (there could be
+  ---- more than one, but one of them will be nondeterministically picked) they synchronize.
+  ---- Actions a(p1, ..., pn) ? and b(q1 : v1, ..., qm : vm) ! match if a = b, n = m, and
+  ---- for each pi there is a qj such that pi = qj.
+
+  msg sync : Oid Action Set{Action} -> Msg .
+
+  crl [match] :
+        ready(O, (Id(Parameters) ?, Actions))
+        ready(O', (Id(Assignment) !, Actions'))
+     => sync(O, Id(Assignment) ?, Actions)
+        sync(O', Id(Assignment) !, Actions)
+     if Parameters = ids(Assignment) .
+
+  op ids : Assignment -> Set{Id} .
+  eq ids(((Id : BValue), Assignment)) = Id, ids(Assignment) .
+  eq ids(((Id : IValue), Assignment)) = Id, ids(Assignment) .
+  eq ids(((Id : FValue), Assignment)) = Id, ids(Assignment) .
+  eq ids(((Id : SValue), Assignment)) = Id, ids(Assignment) .
+  eq ids(mt) = empty .
+
+  ---- Once one of the actions get synchronized, the LTS may proceed on it.
+  ---- For a receive action, the assignment in the state of the LTS is updated with the values of the
+  ---- actual parameters of the action.
+  crl [sync] :
+        < O  : LTS | transitions : (From - Id(Parameters) ! -> To, Transitions) >
+        < O' : LTSInstance | lts : O, state : blocked(From) >
+        sync(O, Id(Assignment) !, Actions)
+     => < O  : LTS | >
+        < O' : LTSInstance | state : To >
+     if ids(Assignment) = Parameters .
+  crl [sync] :
+        < O  : LTS | transitions : (From - Id(Parameters) ? -> To, Transitions) >
+        < O' : LTSInstance | lts : O, state : blocked(From), vars : Assignment >
+        sync(O, Id(Assignment') ?, Actions)
+     => < O  : LTS | >
+        < O' : LTSInstance | state : To, vars : update(Assignment, Assignment') >
+     if ids(Assignment') = Parameters .
+
+  op update : Assignment Assignment -> Assignment .
+  eq update(((Id : BValue), Assignment), ((Id : BValue'), Assignment'))
+    = ((Id : BValue'), update(Assignment, Assignment')) .
+  eq update(((Id : IValue), Assignment), ((Id : IValue'), Assignment'))
+    = ((Id : IValue'), update(Assignment, Assignment')) .
+  eq update(((Id : FValue), Assignment), ((Id : FValue'), Assignment'))
+    = ((Id : FValue'), update(Assignment, Assignment')) .
+  eq update(((Id : SValue), Assignment), ((Id : SValue'), Assignment'))
+    = ((Id : SValue'), update(Assignment, Assignment')) .
+  eq update(Assignment, Assignment') = Assignment [owise] .
+endom

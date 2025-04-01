@@ -1,0 +1,91 @@
+--- Define the LTS language adapter (experimental)
+sload ../../lts/lts.maude
+omod LTS-ADAPTER is
+  inc BROKER .
+  inc LTS-SEM .
+
+  --- LTS Adapter equations -------------------------------------------------------------------------
+  var Packets InPackets OutPackets : Packets .
+  var Variable : Variable .
+  var Variables : VariableSet .
+
+  var Br O : Oid .
+  var VarName ParaMessageName : Id .
+  var Action1 Action2 : Id .
+  var Bindings : Set{Binding} .
+  var Assignment : Assignment .
+  var Parameters : Set{Id} .
+  var BValue : Bool .
+  var IValue : Int .
+  var FValue : Float .
+  var SValue : String .
+  var Actions : Set{Action} .
+
+  msg readyPending : Oid Set{Action} -> Msg .
+
+  eq [lts_ready_send_to_broker] :
+      ready(O, Actions)
+      < Br : Broker | in : InPackets, bindings : Bindings >
+    =
+      readyPending(O, Actions)
+      < Br : Broker | in : (actions2packets(Actions, Bindings), InPackets) > .
+
+  op actions2packets : Set{Action} Set{Binding} -> Packets .
+  eq actions2packets((Action1(Assignment)!, Actions), (Action1 => Action2, Bindings))
+    = (sendPacket(Action1, map(Assignment)),
+       actions2packets(Actions, (Action1 => Action2, Bindings))) .
+  eq actions2packets((Action2(Parameters)?, Actions), (Action1 => Action2, Bindings))
+    = (receivePacket(Action2, Parameters),
+       actions2packets(Actions, (Action1 => Action2, Bindings))) .
+  eq actions2packets(empty, Bindings) = noPackets .
+
+  --- Equations to map data from LTS to the broker
+  op map : Assignment -> VariableSet .
+  eq map((VarName : BValue), Assignment) = ((VarName = BValue), map(Assignment)) .
+  eq map((VarName : IValue), Assignment) = ((VarName = IValue), map(Assignment)) .
+  eq map((VarName : FValue), Assignment) = ((VarName = FValue), map(Assignment)) .
+  eq map((VarName : SValue), Assignment) = ((VarName = SValue), map(Assignment)) .
+  eq map(mt) = noVars .
+
+  --- LTS Broker reply -----------------------------------------------------------------------------
+  ---- If one of the actions has synchronized, all pending actions must be removed from the
+  ---- packets set. We will assume no process can sync with itself.
+  ceq [broker_to_lts_send] :
+      readyPending(O, (Action1(Assignment)!, Actions))
+      < Br : Broker | in : InPackets, out : (sendPacket(Action1, Variables), OutPackets) >
+    =
+      sync(O, Action1(Assignment)!, Actions) ---- no change in a send action
+      < Br : Broker | in : removePackets(Actions, OutPackets), out : removePackets(Actions, OutPackets) >
+    if ids(Assignment) = ids(Variables) .
+  ceq [broker_to_lts_send] :
+      readyPending(O, (Action2(Parameters)?, Actions))
+      < Br : Broker | in : InPackets, out : (receivePacket(Action2, Variables), OutPackets) >
+    =
+      sync(O, Action2(map(Variables))?, Actions) ---- the received assignmet is forwarded
+      < Br : Broker | in : removePackets(Actions, OutPackets), out : removePackets(Actions, OutPackets) >
+    if Parameters = ids(Variables) .
+
+  ---- a set of not anymore pending actions are removed from the packet set
+  op removePackets : Set{Action} Packets -> Packets .
+  ceq removePackets((Action1(Assignment)!, Actions), (sendPacket(Action1, Variables), Packets))
+    = removePackets(Actions, Packets)
+    if ids(Assignment) = ids(Variables) .
+  ceq removePackets((Action1(Parameters)?, Actions), (receivePacket(Action1, Variables), Packets))
+    = removePackets(Actions, Packets)
+    if Parameters = ids(Variables) .
+  eq removePackets(Actions, Packets) = Packets .
+
+  --- Equations to map data from the Broker to the LTS
+  op map : VariableSet -> Assignment .
+  eq map((VarName = BValue), Variables) = ((VarName : BValue), map(Variables)) .
+  eq map((VarName = IValue), Variables) = ((VarName : IValue), map(Variables)) .
+  eq map((VarName = FValue), Variables) = ((VarName : FValue), map(Variables)) .
+  eq map((VarName = SValue), Variables) = ((VarName : SValue), map(Variables)) .
+  eq map(noVars) = mt .
+  op mapParams : VariableSet -> Set{Id} .
+  eq mapParams((VarName = BValue), Variables) = (VarName, mapParams(Variables)) .
+  eq mapParams((VarName = IValue), Variables) = (VarName, mapParams(Variables)) .
+  eq mapParams((VarName = FValue), Variables) = (VarName, mapParams(Variables)) .
+  eq mapParams((VarName = SValue), Variables) = (VarName, mapParams(Variables)) .
+  eq mapParams(noVars) = empty .
+endom

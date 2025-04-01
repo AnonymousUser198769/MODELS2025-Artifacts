@@ -1,0 +1,21 @@
+---- Example see ./trafficJunction
+load ../statechart.maude
+
+mod SC-EX is
+  pr SC-SEM .
+  pr STRING .
+  subsorts String < Id . ---- strings are used as identifiers
+
+  ops ctl ptl si id : -> Oid .
+  op initSystem : -> Configuration .
+  eq initSystem
+    = < ctl : StateChart | transitions : ("Red" - after(3) / raise "turnRed" -> "Red-amber",
+                                          "Red-amber" - after(1) / noEffect -> "Green",
+                                          "Green" - after(3) / noEffect -> "Amber",
+                                          "Amber" - after(1) / raise "turnGreen" -> "Final" ) > --- Break the cycle here
+      < ptl : StateChart | transitions : ("Green" - event("turnRed") / noEffect -> "Red",
+                                          "Red" - event("turnGreen") / noEffect -> "Final") > --- Break the cycle here
+      < si : SCInstance | sc : ctl, state : scToken("Red", 0), variables : none >
+      < si : SCInstance | sc : ptl, state : scToken("Green", 0), variables : none >
+      < id : EventPools | pools : (evpool("turnRed", nil), evpool("turnGreen", nil)) > .
+endm

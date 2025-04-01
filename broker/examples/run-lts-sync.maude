@@ -1,0 +1,5 @@
+load ../broker-def.maude
+
+load LTS_sync/broker.maude
+
+rew {initLTS1 initLTS2 broker, 0} .

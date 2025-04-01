@@ -1,0 +1,28 @@
+mod CPN-EX is
+  pr CPN-SEM .
+  pr STRING .
+  subsorts String < Id .
+
+  ops a ai : -> Oid .
+  op speed : -> Id .
+  op initCPN : -> Configuration .
+  eq initCPN
+      = < a : CPN | places : (place("New train can approach", ("New train delay passed -> New train can approach"), ("New train can approach -> Inbound train measured"), INT),
+                              place("Train inbound", ("Inbound train measured -> Train approaching"), empty, INT), --- First output place
+                              place("Train between sensors", ("Inbound train measured -> Train between sensors"), ("Train between sensors -> Outgoing train measured"), INT),
+                              place("New train waiting to approach", ("Outgoing train measured -> New train waiting to approach"), ("New train waiting to approach -> New train delay passed"), INT),
+                              place("Train passed", ("Outgoing train measured -> Train passed"), empty, INT) ), --- Second output place
+                    transitions : (transition("Inbound train measured", ("New train can approach -> Inbound train measured"), ("Inbound train measured -> Train approaching", "Inbound train measured -> Train between sensors"), @+ const(0)) ),
+                                   transition("New train delay passed", ("New train waiting to approach -> New train delay passed"), ("New train delay passed -> New train can approach"), @+ const(10)),
+                                   transition("Outgoing train measured", ("Train between sensors -> Outgoing train measured"), ("Outgoing train measured -> Train passed", "Outgoing train measured -> New train waiting to approach"), @+ (const(400) /' speed) ),
+                    arcs : (arc("New train can approach -> Inbound train measured", "New train can approach", "Inbound train measured", varExpression(speed)),
+                            arc("Inbound train measured -> Train between sensors", "Inbound train measured", "Train between sensors", varExpression(speed)),
+                            arc("Inbound train measured -> Train approaching", "Inbound train measured", "Train inbound", varExpression(speed)),
+                            arc("Train between sensors -> Outgoing train measured", "Train between sensors", "Outgoing train measured", varExpression(speed)),
+                            arc("New train waiting to approach -> New train delay passed", "New train waiting to approach", "New train delay passed", varExpression(speed)),
+                            arc("New train delay passed -> New train can approach", "New train delay passed", "New train can approach", varExpression(speed)),
+                            arc("Outgoing train measured -> Train passed", "Outgoing train measured", "Train passed", varExpression(speed)),
+                            arc("Outgoing train measured -> New train waiting to approach", "Outgoing train measured", "New train waiting to approach", varExpression(speed)) ) >
+        < ai : CPNInstance | cpn : a, marking : (token("New train can approach", data(25), 0),
+                                                   token("New train can approach", data(40), 0) ) > .
+endm

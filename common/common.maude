@@ -1,0 +1,52 @@
+sload ../configuration.maude
+sload ./my-real-time-maude.maude
+
+fmod ID is
+  sorts Id .
+endfm
+
+view Id from TRIV to ID is
+  sort Elt to Id .
+endv
+
+view Configuration from TRIV to CONFIGURATION is
+  sort Elt to Configuration .
+endv
+
+omod SYSTEM is
+  pr NAT-TIME-DOMAIN-WITH-INF .
+  sort System .
+  op {_,_} : Configuration Time -> System .
+
+  op TIME-BOUND : -> Time .
+  eq TIME-BOUND = 72 . --- Current max time bound
+
+  var Conf : Configuration .
+  var T T' : Time .
+
+  --- the tick rule can always be defined in the same way, operating on states of the form
+  --- { Conf, T } with Conf the object configuration and T is the global time
+  crl [tick] :
+     { Conf, T }
+  => { delta(Conf, T'), T plus T' }
+  if T' := min(mte(Conf, T), mteBroker(Conf, T)) /\ T' gt zero /\ T plus T' <= TIME-BOUND .
+
+  --- The delta function models the pass of time, that is, how the pass of time affects our system.
+  op delta : Configuration Time -> Configuration .
+  eq delta(none, T) = none .
+  --- Passage of time (delta) is by default not relevant for a system until added in the system spec itself.
+  eq delta(Conf, T) = Conf [owise] .
+
+  --- The mte function gives the maximum time elapse, that is, the maximum amount of time that can
+  --- advance without missing any event, or, if you prefer, the first time to the first thing that
+  --- may happen in a system.
+  op mte : Configuration Time -> Time . --- Configuration, Global time
+  ---- everything else is INF by default, i.e, nothing can happen even if infinite time passes.
+  eq mte(Conf, T) = INF [owise] .
+
+  --- We need a specific mte rule for the broker since the broker operates partly on the individual components.
+  --- Without this it can lead to non-confluence in the equations.
+  op mteBroker : Configuration Time -> Time .
+  ---- everything else is INF by default, i.e, nothing can happen even if infinite time passes.
+  eq mteBroker(Conf, T) = INF [owise] .
+endom

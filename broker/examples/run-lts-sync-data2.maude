@@ -1,0 +1,10 @@
+sload ../broker-def.maude
+
+sload LTS_sync-data/ex2.maude
+
+set trace off .
+set trace eqs off .
+---- set trace select on .
+---- trace select broker_to_lts_send .
+rew {initLTS1 initLTS2 broker, 0} .
+search {initLTS1 initLTS2 broker, 0} =>! S:System .

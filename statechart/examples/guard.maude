@@ -1,0 +1,19 @@
+---- Example see ./guard
+load ../statechart.maude
+
+mod SC-EX is
+  inc SC-SEM .
+  pr STRING .
+
+  subsorts String < Id . ---- strings are used as identifiers
+
+  ops a ai id : -> Oid .
+  ops y : -> IntVar .
+  op initSystem : -> Configuration .
+  eq initSystem
+    = < a : StateChart | transitions : ("A" - always / y = 1 -> "B",
+                                        "B" - [y >=' 1] / noEffect -> "Right",
+                                        "B" - [y <' 1] / noEffect -> "Wrong") >
+      < ai : SCInstance | sc : a, state : scToken("A", 0), variables : ([y : 0]) > --- initial state is A
+      < id : EventPools | pools : empty > .
+endm

@@ -1,0 +1,35 @@
+load ./../cpn.maude
+
+mod CPN-EX is
+  pr CPN-SEM .
+  pr STRING .
+  subsorts String < Id .
+
+  ops a ai : -> Oid .
+  op x : -> Id .
+  op initSystem : -> Configuration .
+  eq initSystem
+    = < a : CPN | places : (place("P1", empty, ("P1 -> T1"), INT),
+                            place("P2", ("T1 -> P2"), ("P2 -> T3"), INT),
+                            place("P3", empty, ("P3 -> T2"), INT),
+                            place("P4", ("T2 -> P4"), ("P4 -> T4"), INT),
+                            place("P5", ("T3 -> P5"), empty, INT),
+                            place("P6", ("T4 -> P6"), empty, INT) ),
+                  transitions : (transition("T1", ("P1 -> T1"), ("T1 -> P2"), @+ (x +' const(1))),
+                                 transition("T2", ("P3 -> T2"), ("T2 -> P4"), @+ const(5)),
+                                 transition("T3", ("P2 -> T3"), ("T3 -> P5"), @+ const(0)),
+                                 transition("T4", ("P4 -> T4"), ("T4 -> P6"), @+ const(0)) ),
+                  arcs : (arc("P1 -> T1", "P1", "T1", varExpression(x)),
+                          arc("P2 -> T3", "P2", "T3", varExpression(x)),
+                          arc("P3 -> T2", "P3", "T2", varExpression(x)),
+                          arc("P4 -> T4", "P4", "T4", varExpression(x)),
+                          arc("T1 -> P2", "T1", "P2", varExpression(x)),
+                          arc("T2 -> P4", "T2", "P4", varExpression(x)),
+                          arc("T3 -> P5", "T3", "P5", varExpression(x)),
+                          arc("T4 -> P6", "T4", "P6", varExpression(x)) ) >
+      < ai : CPNInstance | cpn : a, marking : (token("P1", data(1), 0),
+                                                 token("P3", data(1), 0) ) > .
+endm
+
+rew {initSystem, 0} . --- Should lead to a marking with the tokens [1] in P5(@2) and P6(@5).
+--- Due to the timing T3 should happen before T4. The global time should be 5 at the end.

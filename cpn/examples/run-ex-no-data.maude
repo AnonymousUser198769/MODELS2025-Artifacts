@@ -1,0 +1,18 @@
+load ./../cpn.maude
+
+mod CPN-EX is
+  pr CPN-SEM .
+  pr STRING .
+  subsorts String < Id .
+
+  ops a ai : -> Oid .
+  op initSystem : -> Configuration .
+  eq initSystem
+    = < a : CPN | places : (place("P1", empty, ("P1 -> T1"), UNIT),
+                            place("P2", ("T1 -> P2"), empty, UNIT) ),
+                  transitions : (transition("T1", ("P1 -> T1"), ("T1 -> P2"), @+ const(1))),
+                  arcs : (arc("P1 -> T1", "P1", "T1", noExpr), arc("T1 -> P2", "T1", "P2", noExpr)) >
+      < ai : CPNInstance | cpn : a, marking : (token("P1", unit, 0), token("P1", unit, 0), token("P1", unit, 0)) > .
+endm
+
+rew {initSystem, 0} . --- Should lead to a marking with 3xP2@1 (time 1).

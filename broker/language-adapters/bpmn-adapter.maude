@@ -1,0 +1,50 @@
+--- Define the BPMN language adapter
+sload ../../bpmn/bpmn.maude
+omod BPMN-ADAPTER is
+  inc BROKER .
+  inc BPMN-SEM .
+
+  var Br SId PId : Oid .
+  var Packets : Packets .
+  var Bindings : Set{Binding} .
+
+  var Messages : Set{Id} .
+  var Message ChannelId : Id .
+
+  --- Read BPMN messages (ingest) ------------------------------------------------------------------
+  rl [bpmn_message_to_broker] :
+      < SId : BPMNInstance | messages : (Message, Messages) >
+      < Br : Broker | in : Packets, bindings : (Message -> ChannelId, Bindings) >
+    =>
+      < SId : BPMNInstance | messages : Messages >
+      < Br : Broker | in : (packet(Message, noVars), Packets) > .
+  eq mteBroker(
+      < SId : BPMNInstance | messages : (Message, Messages) >
+      < Br : Broker | in : Packets, bindings : (Message -> ChannelId, Bindings) > C, T)
+     = zero .
+
+
+  var FId1 FId2 : Id .
+  var NId : Id .
+  var TaskName : String .
+  var Nodes : Set{Node} .
+  var T : Time .
+  var OM IM : Set{Id} .
+  var Tks : Set{Message} .
+  var C : Configuration .
+
+  --- Write messages from the broker if a BPMN simulation is waiting (deliver) ---------------------
+  rl [broker_to_bpmn_message] :
+      < PId : Process | nodes : (task(NId, TaskName, FId1, FId2, T, OM, (Message, IM)), Nodes) >
+      < SId : BPMNInstance | process : PId, tokens : (token(NId, 0), Tks), messages : Messages >
+      < Br : Broker | out : (packet(Message, noVars), Packets), bindings : (ChannelId -> Message, Bindings) >
+    =>
+      < PId : Process | >
+      < SId : BPMNInstance | messages : (Message, Messages) >
+      < Br : Broker | out : Packets > .
+  eq mteBroker(
+      < PId : Process | nodes : (task(NId, TaskName, FId1, FId2, T, OM, (Message, IM)), Nodes) >
+      < SId : BPMNInstance | process : PId, tokens : (token(NId, 0), Tks), messages : Messages >
+      < Br : Broker | out : (packet(Message, noVars), Packets), bindings : (ChannelId -> Message, Bindings) > C, T)
+     = zero .
+endom

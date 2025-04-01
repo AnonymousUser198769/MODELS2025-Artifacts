@@ -1,0 +1,22 @@
+---- Example see ./event-payloads
+load ../statechart.maude
+
+mod SC-EX is
+  inc SC-SEM .
+  pr STRING .
+
+  subsorts String < Id . ---- strings are used as identifiers
+
+  ops a ai b bi id : -> Oid .
+  ops x y : -> IntVar .
+  op inEV : -> Id .
+  op initSystem : -> Configuration .
+  eq initSystem
+    = < a : StateChart | transitions : ("A" - event(inEV) / y = inEV . value -> "B",
+                                        "B" - [y >' 24] / noEffect -> "final") >
+      < ai : SCInstance | sc : a, state : scToken("A", 0), variables : ([y : 0]) >
+      < id : EventPools | pools : evpool(inEV, nil) >
+      < b : StateChart | transitions : ("A" - always / x = 25 -> "B",
+                                        "B" - always / raise inEV : x -> "final") >
+      < bi : SCInstance | sc : b, state : scToken("A", 0), variables : ([x : 0]) > .
+endm

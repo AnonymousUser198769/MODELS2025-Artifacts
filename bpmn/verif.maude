@@ -1,0 +1,14 @@
+load bpmn.maude
+load examples/sentReceive.maude
+
+mod VERIF is
+  pr BPMN-EX .
+
+  op p : -> Oid .
+  op s : -> Oid .
+
+  op initSystem : -> Configuration .
+  eq initSystem = < p : Process | nodes : nds, flows : fls > < s : BPMNInstance | process : p, tokens : init, messages : empty > .
+endm
+
+rew {initSystem, 0} .

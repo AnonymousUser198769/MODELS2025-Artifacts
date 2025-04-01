@@ -1,0 +1,7 @@
+load examples/trafficJunction.maude
+
+---set trace on .
+---set trace select on .
+---set trace eqs on .
+---trace select executeTransitionAlways .
+rew {initSystem, 0} .

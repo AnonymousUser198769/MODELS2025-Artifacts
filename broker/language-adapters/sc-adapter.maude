@@ -1,0 +1,63 @@
+--- Define the statechart language adapter
+sload ../../statechart/statechart.maude
+omod SC-ADAPTER is
+  inc BROKER .
+  inc SC-SEM .
+
+  var Br Id : Oid .
+  var Packets : Packets .
+  var Bindings : Set{Binding} .
+  var Vars : VariableSet .
+
+  var EVPools : Set{EventPool} .
+  var Events : List{Event} .
+  var ChannelName ChannelId : Id .
+  var Event : Event .
+  var Int : Int .
+  var String : String .
+  var Bool : Bool .
+
+  subsort String < Id .
+  var C : Configuration .
+  var T : Time .
+
+  --- Read SC events (ingest) ----------------------------------------------------------------------
+  rl [sc_event_to_broker] :
+      < Id : EventPools | pools : (evpool(ChannelName, (Event Events)), EVPools) >
+      < Br : Broker | in : Packets, bindings : (ChannelName -> ChannelId, Bindings) >
+    =>
+      < Id : EventPools | pools : (evpool(ChannelName, Events), EVPools) >
+      < Br : Broker | in : (packet(ChannelName, scToBroker(Event)), Packets) > .
+  eq mteBroker(
+      < Id : EventPools | pools : (evpool(ChannelName, (Event Events)), EVPools) >
+      < Br : Broker | in : Packets, bindings : (ChannelName -> ChannelId, Bindings) > C, T)
+     = zero .
+
+  op scToBroker : Event -> VariableSet . --- Map SC data to the broker's canonical data model.
+  eq scToBroker(event) = noVars .
+  --- TODO: Var names --> semantic mapping needed
+  eq scToBroker(event(value : Int)) = ("value" = Int) .
+  eq scToBroker(event(value : Bool)) = ("value" = Bool) .
+  eq scToBroker(event(value : String)) = ("value" = String) .
+
+  --- Write SC events (deliver) --------------------------------------------------------------------
+  rl [broker_to_sc_event] :
+      < Id : EventPools | pools : (evpool(ChannelName, Events), EVPools) >
+      < Br : Broker | out : (packet(ChannelName, Vars), Packets),
+                      bindings : (ChannelId -> ChannelName, Bindings) >
+    =>
+      < Id : EventPools | pools : (evpool(ChannelName, (scFromBroker(Vars) Events)), EVPools) >
+      < Br : Broker | out : Packets > .
+  eq mteBroker(
+      < Id : EventPools | pools : (evpool(ChannelName, Events), EVPools) >
+      < Br : Broker | out : (packet(ChannelName, Vars), Packets),
+                      bindings : (ChannelId -> ChannelName, Bindings) > C, T)
+     = zero .
+
+  op scFromBroker : VariableSet -> Event . --- Map the broker's canonical data model to SC data.
+  eq scFromBroker(noVars) = event .
+  --- TODO: Var names --> semantic mapping needed
+  eq scFromBroker("value" = Int) = event(value : Int) .
+  eq scFromBroker("value" = Bool) = event(value : Bool) .
+  eq scFromBroker("value" = String) = event(value : String) .
+endom

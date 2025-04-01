@@ -1,0 +1,36 @@
+mod SC-EX is
+  pr SC-SEM .
+  pr STRING .
+  subsorts String < Id .
+
+  ops closeIn trains trainSpeed trainArrival safetyBuffer : -> IntVar .
+  ops barrierSystem bsi crossingManager cmi pools : -> Oid .
+  op initSC : -> Configuration .
+  eq initSC
+    =
+      < barrierSystem : StateChart | transitions : ("Barrier closed" - event("openBarrier") / noEffect -> "Barrier opening",
+                                                        "Barrier opening" - event("closeBarrier") / noEffect -> "Barrier closed",
+                                                        "Barrier opening" - after(2) / noEffect -> "Barrier open",
+                                                        "Barrier open" - event("closeBarrier") / noEffect -> "Barrier closing",
+                                                        "Barrier closing" - event("openBarrier") / noEffect -> "Barrier open",
+                                                        "Barrier closing" - after(2) / noEffect -> "Barrier closed" ) >
+      < bsi : SCInstance | sc : barrierSystem, state : scToken("Barrier open", 0), variables : none >
+      < crossingManager : StateChart | transitions : ("No trains" - event("trainInbound") / trainSpeed = "trainInbound" . value ; (trains = trains +' 1 ; (closeIn = 200 /' trainSpeed  ; closeIn = closeIn -' safetyBuffer)) -> "Trains inbound",
+                                                         "Trains inbound" - event("trainInbound") / trainSpeed = "trainInbound" . value ; (trains = trains +' 1 ; (trainArrival = 200 /' trainSpeed  ; (trainArrival = closeIn -' safetyBuffer ; closeIn = trainArrival <' closeIn ? trainArrival : closeIn))) -> "Trains inbound",
+                                                         "Trains inbound" - after(1) [closeIn >=' 1] / closeIn = closeIn -' 1 -> "Trains inbound",
+                                                         "Trains inbound" - [closeIn <=' 0] / raise "blockCarTraffic" -> "Trains are passing",
+                                                         "Trains are passing" - [trains == 0] / raise "unblockCarTraffic" ; (trainSpeed = 0 ; (trainArrival = 0 ; closeIn = 0)) -> "No trains", --- These effects here are not shown in the diagram. They are just used to minimize state space.
+                                                         "Trains are passing" - event("trainPassed") / trains = trains -' 1 -> "Trains are passing" ,
+                                                         "Trains are passing" - event("trainInbound") / trains = trains +' 1 -> "Trains are passing" ) >
+      < cmi : SCInstance | sc : crossingManager, state : scToken("No trains", 0), variables : ([closeIn : 0],
+                                                                                                    [trainSpeed : 0],
+                                                                                                    [trainArrival : 0],
+                                                                                                    [safetyBuffer : 1],
+                                                                                                    [trains : 0]) >
+      < pools : EventPools | pools : (evpool("trainInbound", nil),
+                                            evpool("trainPassed", nil),
+                                            evpool("blockCarTraffic", nil),
+                                            evpool("unblockCarTraffic", nil),
+                                            evpool("closeBarrier", nil),
+                                            evpool("openBarrier", nil)) > .
+endm

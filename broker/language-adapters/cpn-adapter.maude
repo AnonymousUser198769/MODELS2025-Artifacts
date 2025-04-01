@@ -1,0 +1,71 @@
+--- Define the CPN language adapter
+sload ../../cpn/cpn.maude
+omod CPN-ADAPTER is
+  inc BROKER .
+  inc CPN-SEM .
+
+  var Br SId CPNId : Oid .
+  var Packets : Packets .
+  var Bindings : Set{Binding} .
+  var Vars : VariableSet .
+
+  var PlaceId ChannelId : Id .
+
+  var Places : Set{CPNPlace} .
+  var InArcs OutArcs : Set{Id} .
+  var Marking : CPNTokens .
+  var Type : CPNDataType .
+  var T GT : Time .
+  var Conf : Configuration .
+  var Data : CPNData .
+  var Int : Int .
+  var String : String .
+  var Bool : Bool .
+
+  subsort String < Id .
+
+  --- Read a token and create a packet (if the token is visible due to his timestamp) (ingest) -----
+  crl [token_to_packet] :
+      { < CPNId : CPN | places : (place(PlaceId, InArcs, OutArcs, Type), Places) >
+        < SId : CPNInstance | cpn : CPNId, marking : (token(PlaceId, Data, T), Marking) >
+        < Br : Broker | in : Packets, bindings : (PlaceId -> ChannelId, Bindings) > Conf, GT }
+    =>
+      { < CPNId : CPN | >
+        < SId : CPNInstance | marking : Marking >
+        < Br : Broker | in : (packet(PlaceId, cpnToBroker(Data)), Packets) > Conf, GT } if GT >= T .
+
+  op cpnToBroker : CPNData -> VariableSet . --- Map CPN data to the broker's canonical data model.
+  eq cpnToBroker(unit) = noVars .
+  --- TODO: Var names --> semantic mapping needed
+  eq cpnToBroker(data(Int)) = ("value" = Int) .
+  eq cpnToBroker(data(String)) = ("value" = String) .
+  eq cpnToBroker(data(Bool)) = ("value" = Bool) .
+
+  ceq mteBroker(
+      < SId : CPNInstance | cpn : CPNId, marking : (token(PlaceId, Data, T), Marking) >
+      < Br : Broker | in : Packets, bindings : (PlaceId -> ChannelId, Bindings) > Conf, GT)
+     = zero  if GT >= T .
+
+  --- Write tokens and delete packages (deliver) ---------------------------------------------------
+  rl [packet_to_token] :
+      < CPNId : CPN | places : (place(PlaceId, InArcs, OutArcs, Type), Places) >
+      < SId : CPNInstance | cpn : CPNId, marking : Marking >
+      < Br : Broker | out : (packet(PlaceId, Vars), Packets), bindings : (ChannelId -> PlaceId, Bindings) >
+    =>
+      < CPNId : CPN | >
+      < SId : CPNInstance | marking : (token(PlaceId, cpnFromBroker(Vars), 0), Marking) > --- Timestamp 0 means the token is immediately accessible.
+      < Br : Broker | out : Packets > .
+
+  eq mteBroker(
+      < CPNId : CPN | places : (place(PlaceId, InArcs, OutArcs, Type), Places) >
+      < SId : CPNInstance | cpn : CPNId, marking : Marking >
+      < Br : Broker | out : (packet(PlaceId, noVars), Packets), bindings : (ChannelId -> PlaceId, Bindings) > Conf, GT)
+     = zero .
+
+  op cpnFromBroker : VariableSet -> CPNData .
+  eq cpnFromBroker(noVars) = unit .
+  --- TODO: Var names --> semantic mapping needed
+  eq cpnFromBroker("value" = Int) = data(Int) .
+  eq cpnFromBroker("value" = String) = data(String) .
+  eq cpnFromBroker("value" = Bool) = data(Bool) .
+endom

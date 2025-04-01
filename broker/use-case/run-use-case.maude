@@ -1,0 +1,67 @@
+sload ../broker-def.maude
+
+sload cpn/cpn-use-case.maude
+sload statechart/sc-use-case.maude
+sload ./broker.maude
+
+--- Rewrite the system
+---rew systemConfiguration .
+
+--- Some interesting properties
+--- Train count should never be negative.
+red modelCheck(systemConfiguration, [] ~ Train-count-negative) . --- SC property
+
+--- Trains do not pass while there is an open barrier.
+red modelCheck(systemConfiguration, [] ~ (Barriers-open /\ Train-passing)) .  --- property for CPN + SC
+
+--- Trains do not pass while there is a barrier that is still in the process of closing.
+red modelCheck(systemConfiguration, [] ~ (Barrier-closing /\ Train-passing)) .  --- global property CPN + SC
+--- This is not fulfilled if the safety buffer = 1 or 100/speed < 2. Then the barrier might not be closed while the train is already passing because it does not have enough time (2s).
+
+--- Properties using the delayed reaction LTL pattern (https://dsg.tuwien.ac.at/team/ctsigkanos/patterns/pattern/delayedreaction/) or response https://matthewbdwyer.github.io/psp/patterns/ltl.html#Response
+
+--- If the barrier is closed, then the barrier should open eventually.
+red modelCheck(systemConfiguration, [](Barriers-closed -> <> Barriers-open)) . --- SC property
+
+--- A train-inbound packet eventually leads to a close-barrier packet in the broker.
+---red modelCheck(systemConfiguration, [](Train-Inbound-Packet -> <> Close-Barrier-Packet)) . --- Broker property (protocol)
+--- This is always fulfilled if there is only one train.
+--- However, if there are two trains and closeIn becomes 0 (100/speed - safetyBuffer) the second train-inbound packet might come in the state "Trains passing" when a close-barrier packet already has been sent.
+--- Increase train speed above 50 or safety buffer to 2 to make this property fail (for two or more trains).
+
+--- A train-inbound packet eventually leads to a closed barrier.
+red modelCheck(systemConfiguration, [](Train-Inbound-Packet -> <> Barriers-closed)) . --- property for SC + broker
+--- The controller gives the barrier only the amount of the safety buffer to close the barrier, i.e., the safety buffer has to be increased to >= 2 for this property to be fulfilled.
+--- Similar to the property "Trains do not pass while there is a barrier that is still in the process of closing" above.
+
+--- Find all states that satisfy a certain condition
+---search systemConfiguration =>* S such that (S |= Train-count-negative) = true .
+---search systemConfiguration =>* S such that (S |= Train-passing) = true .
+---search systemConfiguration =>* S such that (S |= Barriers-open) = true /\ (S |= Train-passing) = true .
+---search systemConfiguration =>* S such that (S |= Barrier-closing) = true /\ (S |= Train-passing) = true .
+
+--- Find with bound=1, i.e., how many solutions to look for and depth=100.
+---set trace on .
+---set trace eqs off .
+---set trace condition off .
+---set trace substitution off .
+---set trace whole off .
+---set trace mb off .
+---set trace select on .
+---trace select tick .
+---search [1, 100] systemConfiguration =>+ S such that S |= Train-count-negative = true .
+
+--- Find all final states that satisfy a certain condition
+---search systemConfiguration =>! S such that (S |= Train-count-is(0)) = true .
+
+--- Full state space (searches for all final states)
+---search systemConfiguration =>! S .
+
+--- Full state space with tracing
+---set trace on .
+---set trace eqs off .
+---set trace condition off .
+---set trace substitution off .
+search systemConfiguration =>! S .
+ --- Increasing the safety buffer to 2 will result in only one solution with GT=7.
+ --- The solution with GT=5 is when the barrier is closing and then opens without taking time due to an incoming event (nondeterministic vs fully closing).

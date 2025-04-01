@@ -1,0 +1,33 @@
+mod CPN-EX is
+  pr CPN-SEM .
+  pr STRING .
+  subsorts String < Id .
+
+  ops a ai : -> Oid .
+  op initCPN : -> Configuration .
+  eq initCPN
+    = < a : CPN | places : (place("P1", empty, ("P1 -> T1"), UNIT),
+                            place("P2", ("T1 -> P2"), empty, UNIT),
+                            place("P3", empty, ("P3 -> T2"), UNIT),
+                            place("P4", ("T2 -> P4"), empty, UNIT)),
+                  transitions : (transition("T1", ("P1 -> T1"), ("T1 -> P2"), @+ const(0)),
+                                 transition("T2", ("P3 -> T2"), ("T2 -> P4"), @+ const(0)) ),
+                  arcs : (arc("P1 -> T1", "P1", "T1", noExpr),
+                          arc("T1 -> P2", "T1", "P2", noExpr),
+                          arc("P3 -> T2", "P3", "T2", noExpr),
+                          arc("T2 -> P4", "T2", "P4", noExpr)) >
+      < ai : CPNInstance | cpn : a, marking : (token("P1", unit, 0),
+                                                 token("P1", unit, 0),
+                                                 token("P1", unit, 0),
+                                                 token("P1", unit, 0)) > .
+endm
+
+mod BROKER-EX is
+  pr BROKER .
+  pr CPN-EX .
+  pr CPN-ADAPTER .
+  op br : -> Oid .
+  eq broker = < br : Broker | in : noPackets,
+                              out : noPackets,
+                              bindings : ("P2" -> "P3") > .
+endm

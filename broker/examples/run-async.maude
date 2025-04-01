@@ -1,0 +1,8 @@
+sload ../broker-def.maude
+
+sload BPMN_SC_async/async-bpmn.maude
+sload BPMN_SC_async/async-sc.maude
+
+sload BPMN_SC_async/broker.maude
+
+rew {initBPMN initSC broker, 0} .

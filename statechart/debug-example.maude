@@ -1,0 +1,12 @@
+---- Formal Modelling and Analysis of statecharts (SCs) using Maude
+----
+---- This file contains operations for the automated analysis of SC instances
+---- replace the current example with the path to the file you want to debug
+
+load examples/after-guard.maude
+
+---set trace on .
+---set trace eqs off .
+---set trace condition off .
+---set trace substitution off .
+rew {initSystem, 0} .

@@ -1,0 +1,104 @@
+sload ../common/common.maude
+
+--- Define the Broker metamodel and rules.
+fmod BROKER_IO is
+  pr SET{Id} .
+  pr INT + STRING + FLOAT .
+
+  --- Bindings -------------------------------------------------------------------------------------
+  sort Binding . --- Binding of channels.
+  op _->_ : Id Id -> Binding . --- Async binding
+  op _=>_ : Id Id -> Binding . --- Sync binding (experimental)
+
+  --- Packets --------------------------------------------------------------------------------------
+  sort Packet .
+  --- The vanilla packet is used for asynchronous communication
+  op packet : Id VariableSet -> Packet . --- Id and variables
+  --- Send and receive packets are used for synchronous communication (experimental).
+  op sendPacket : Id VariableSet -> Packet . --- Id and variables
+  op receivePacket : Id Set{Id} -> Packet . --- Id and receive params
+  op receivePacket : Id VariableSet -> Packet . --- Id and receive vars
+  --- Multiset for packets -------------------------------------------------------------------------
+  sort Packets .
+  subsort Packet < Packets .
+  op noPackets : -> Packets [ctor] .
+  op _,_ : Packets Packets -> Packets [ctor assoc comm id: noPackets] .
+
+  --- Variables ------------------------------------------------------------------------------------
+  sort Variable VariableSet .
+  subsort Variable < VariableSet .
+  op _=_ : Id Bool -> Variable .
+  op _=_ : Id Int -> Variable .
+  op _=_ : Id String -> Variable .
+  op _=_ : Id Float -> Variable .
+  op noVars : -> VariableSet .
+  op _,_ : VariableSet VariableSet -> VariableSet [assoc comm id: noVars] .
+endfm
+
+view Binding from TRIV to BROKER_IO is
+  sort Elt to Binding .
+endv
+
+omod BROKER is
+  inc BROKER_IO .
+  pr SET{Binding} .
+  pr SYSTEM .
+
+  ---- Broker --------------------------------------------------------------------------------------
+  class Broker | in : Packets, out : Packets, bindings : Set{Binding} .
+
+  --- Variables for the rules ----------------------------------------------------------------------
+  var Br : Oid .
+  var InPackets OutPackets : Packets .
+  var Bindings : Set{Binding} .
+  var Id Id1 Id2 : Id .
+  var Variables : VariableSet .
+  var Params : Set{Id} .
+  var Variable : Variable .
+  var Int : Int .
+  var Bool : Bool .
+  var C : Configuration .
+  var T : Time .
+
+  ---- Broker async binding rule (move) ------------------------------------------------------------
+  rl [broker-async-binding] :
+      < Br : Broker | in : (packet(Id1, Variables), InPackets),
+                      out : OutPackets,
+                      bindings : (Id1 -> Id2, Bindings) >
+    =>
+      < Br : Broker | in : InPackets,
+                      out : (packet(Id2, Variables), OutPackets) > .
+  --- This rule does not take any time, i.e., mte is zero.
+  eq mteBroker(< Br : Broker | in : (packet(Id1, Variables), InPackets),
+                         out : OutPackets,
+                         bindings : (Id1 -> Id2, Bindings) > C, T)
+     = zero .
+
+  ---- Broker sync binding rule (experimental) -----------------------------------------------------
+  crl [broker-sync-binding] :
+      < Br : Broker | in : (sendPacket(Id1, Variables), receivePacket(Id2, Params), InPackets),
+                      out : OutPackets,
+                      bindings : (Id1 => Id2, Bindings) >
+    =>
+      < Br : Broker | in : InPackets,
+                      out : (sendPacket(Id1, Variables), receivePacket(Id2, Variables), OutPackets) >
+     if ids(Variables) = Params .
+  --- This rule does not take any time, i.e., mte is zero.
+  eq mteBroker(< Br : Broker | in : (sendPacket(Id1, Variables), receivePacket(Id2, Params), InPackets),
+                         out : OutPackets,
+                         bindings : (Id1 => Id2, Bindings) > C, T)
+     = zero .
+
+  op ids : VariableSet -> Set{Id} .
+  eq ids(((Id = Int), Variables)) = Id, ids(Variables) .
+  eq ids(((Id = Bool), Variables)) = Id, ids(Variables) .
+  eq ids(noVars) = empty .
+
+  op broker : -> Configuration .
+endom
+
+--- Load all language adapters by default
+sload ./language-adapters/sc-adapter.maude
+sload ./language-adapters/cpn-adapter.maude
+sload ./language-adapters/bpmn-adapter.maude
+sload ./language-adapters/lts-adapter.maude

@@ -1,0 +1,4 @@
+- **examples**: Contains examples we used to test our approach.
+- **use-case**: Contains the implementation of the use case in Maude using our framework.
+- **language-adapters**: Contains the langauge adapters implemented in Maude.
+- **broker-def.maude**: Implements the broker metamodel in Maude.
