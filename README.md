@@ -13,6 +13,8 @@ The following image shows a feature model to compare coordination approaches, su
 Especially, the component languages part in the bottom right shows the differentiation between homogeneous/heterogeneous. For example, ADLs have homogeneous components, while our approach allows heterogeneous modeling languages.
 ![Featuer model to compare coordination approaches](./feature-model.svg)
 
+The feature model is currently unpublished, so we did not explain all details or describe our methodology.
+
 # Maude Implementation
 
 The implementation of our approach in Maude and its application to the use case is described in these artifacts.
