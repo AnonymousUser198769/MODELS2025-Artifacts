@@ -4,6 +4,10 @@ To show how our work (classified as coordination framework) differs from existin
 
 ![Coordination overview](./coordination-overview.svg)
 
+We can see in the overview that shows the abstraction levels that most approaches operate on the model or execution level, while our approach operates on the language level.
+Our approach operates on the language level to coordinate **heterogeneous** systems. For example, approaches on the model level require that each part of a system must be given in the chosen modeling language.
+For example, ADLs often use process algebras, which would require translating the models in our example into the chosen process algebra.
+
 ## Feature model
 The following image shows a feature model to compare coordination approaches, such as ADLs, coordination languages, coordination frameworks (like this publication) and even co-simulation approaches.
 ![Featuer model to compare coordination approaches](./feature-model.svg)
