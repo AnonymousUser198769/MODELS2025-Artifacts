@@ -1,5 +1,9 @@
 # Detailed comparison with to other approaches (preliminary work of the authors)
 
+To show how our work (classified as coordination framework) differs from existing approaches such as ADLs, coordination languages, and co-simulation approaches, we created the following overview:
+
+![Coordination overview](./coordination-overview.svg)
+
 ## Feature model
 The following image shows a feature model to compare coordination approaches, such as ADLs, coordination languages, coordination frameworks (like this publication) and even co-simulation approaches.
 ![Featuer model to compare coordination approaches](./feature-model.svg)
