@@ -10,6 +10,7 @@ For example, ADLs often use process algebras, which would require translating th
 
 ## Feature model
 The following image shows a feature model to compare coordination approaches, such as ADLs, coordination languages, coordination frameworks (like this publication) and even co-simulation approaches.
+Especially, the component languages part in the bottom right shows the differentiation between homogeneous/heterogeneous. For example, ADLs have homogeneous components, while our approach allows heterogeneous modeling languages.
 ![Featuer model to compare coordination approaches](./feature-model.svg)
 
 # Maude Implementation
