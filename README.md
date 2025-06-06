@@ -1,3 +1,9 @@
+# Detailed comparison with to other approaches (preliminary work of the authors)
+
+## Feature model
+The following image shows a feature model to compare coordination approaches, such as ADLs, coordination languages, coordination frameworks (like this publication) and even co-simulation approaches.
+![Featuer model to compare coordination approaches](./feature-model.svg)
+
 # Maude Implementation
 
 The implementation of our approach in Maude and its application to the use case is described in these artifacts.
